@@ -1,6 +1,6 @@
 ## Research delegation
 
-For research, file search and codebase investigation, use the `scout` skill (Haiku 5.5, graphify first) instead of exploring yourself. Do not pass a per-call `model` when spawning the `scout` agent directly: it would override the Haiku 5.5 pin.
+For research, file search and codebase investigation, use the `researcher` skill (Haiku 5.5, graphify first) instead of exploring yourself. Relay its result in /i-have-adhd shape (a user-invoked skill: don't try to load it). Do not pass a per-call `model` when spawning the `researcher` agent directly: it would override the Haiku 5.5 pin.
 
 ## graphify
 
