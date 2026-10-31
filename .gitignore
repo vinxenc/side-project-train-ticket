@@ -168,3 +168,6 @@ expo-env.d.ts
 
 # macOS
 .DS_Store
+
+# graphify (derived output, rebuilt per worktree)
+graphify-out/
