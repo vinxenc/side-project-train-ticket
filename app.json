@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Train Ticket",
+    "slug": "train-ticket",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "trainapp",
+    "ios": {
+      "bundleIdentifier": "com.vinxenc.trainticket"
+    },
+    "android": {
+      "package": "com.vinxenc.trainticket",
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#208AEF",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ]
+    ]
+  }
+}
