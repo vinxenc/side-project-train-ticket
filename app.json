@@ -6,7 +6,11 @@
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "trainapp",
+    "ios": {
+      "bundleIdentifier": "com.vinxenc.trainticket"
+    },
     "android": {
+      "package": "com.vinxenc.trainticket",
       "predictiveBackGestureEnabled": false
     },
     "plugins": [

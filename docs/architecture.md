@@ -24,7 +24,7 @@ TypeScript end to end, with types generated from the API's OpenAPI spec.
 | Navigation | Expo Router | File-based routes, deep links for trips and tickets |
 | UI | NativeWind + own design tokens, expo-image, expo-blur | Rounded cards and frosted surfaces like the mockup |
 | 2D animation | Reanimated, Gesture Handler | Runs on the UI thread; smooth tab and card transitions |
-| 3D | three, @react-three/fiber, @react-three/native, @react-three/drei, expo-gl | Declarative 3D in React; since v10 the React Native bindings live in @react-three/native ([pmndrs/native](https://github.com/pmndrs/native)) |
+| 3D | three, @react-three/fiber (v9, imported from @react-three/fiber/native), @react-three/drei, expo-gl | Declarative 3D in React. The v10 React Native bindings (@react-three/native, [pmndrs/native](https://github.com/pmndrs/native)) are not on npm yet, so native apps stay on R3F v9 |
 | Server state | TanStack Query | Caching, refetching, patching from realtime events |
 | UI state | Zustand | Small, and readable inside the R3F render loop |
 | Forms | React Hook Form + Zod | Typed validation for search and checkout |

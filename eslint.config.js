@@ -3,6 +3,7 @@ const { defineConfig, globalIgnores } = require('eslint/config');
 const expoConfig = require('eslint-config-expo/flat');
 
 // Layers: app -> features -> shared, one way. A feature is entered only through its index.ts.
+// Zone semantics: files in "target" must not import "from", except the paths in "except".
 const features = fs.existsSync('src/features') ? fs.readdirSync('src/features') : [];
 
 module.exports = defineConfig([
