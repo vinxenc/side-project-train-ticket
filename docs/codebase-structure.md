@@ -38,6 +38,7 @@ assets/
 - Added when their phase needs them: TanStack Query, Zustand, RHF + Zod, i18next (`en` only) in phase 1; Socket.IO, MMKV, expo-secure-store in phase 2; Sentry at the first store build; Maestro once the booking flow exists; EAS Update at the first release; PostHog maybe never.
 - NativeWind: verify compatibility with the Expo and Reanimated versions at scaffold time. Fallback is `StyleSheet` + `shared/theme` tokens.
 - 3D stack: R3F v9, imported from `@react-three/fiber/native`. The doc's `@react-three/native` (the v10 bindings) is not on npm yet (404 on the registry), and R3F's v10 migration guide says native apps stay on v9. The phase-0 spike validates the v9 setup with `expo-gl`.
+- Agent skills, project scope in `.claude/skills/`, pinned by hash in `skills-lock.json` (`npx skills update` refreshes): `react-native-best-practices` (Callstack, for gate 1), `react-native-testing` (RNTL v14), `expo-router` (Expo). Add when their phase arrives: `expo-dev-client` after Q1, `expo-data-fetching` and `expo-design-system` in phase 1, `eas-app-stores`, `eas-update` and `expo-upgrade` in phase 4. This doc wins over any skill default. Every Expo skill ends with a "send feedback" step (`npx --yes @expo/agent-cli`): don't run it without asking.
 
 ## Build order
 
