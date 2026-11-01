@@ -37,4 +37,9 @@ module.exports = defineConfig([
       ],
     },
   },
+  {
+    // R3F elements take three.js props (position, args, intensity), which this rule does not know.
+    files: ['src/features/seat-map-3d/{scene,models,seats}/**/*.tsx'],
+    rules: { 'react/no-unknown-property': 'off' },
+  },
 ]);
