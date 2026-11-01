@@ -1,6 +1,6 @@
 # Journey detail page and 3D seat picker — implementation plan
 
-> **Proposed — not agreed.** Plan for the page in the mockup (Shinkansen, "Nozomi 32", Tokyo → Kyoto), a **3D hero**, and the **shell-peel seat picker** it opens. Builds on [architecture.md](architecture.md) and [codebase-structure.md](codebase-structure.md). Nothing is built yet.
+> **Proposed — not agreed.** Plan for the page in the mockup (Shinkansen, "Nozomi 32", Tokyo → Kyoto), a **3D hero**, and the **shell-peel seat picker** it opens. Builds on [architecture.md](architecture.md) and [codebase-structure.md](codebase-structure.md). Steps 0–7 are built (the 3D hero is built but switched off, see Decided); steps 8, 9 and 11 are M2a, step 10 is parked.
 
 ## Decided
 
@@ -46,7 +46,7 @@ Layout notes:
 ## 3D hero
 
 - **Home:** `features/seat-map-3d/`, as in `codebase-structure.md`. `index.ts` exports `TrainHero`, an eager wrapper. The R3F scene is `lazy()` inside Suspense plus an error boundary, so the static image shows while loading and when the scene throws while rendering or its load rejects (see Failure mode below for load-time errors). The barrel never imports three statically. `journeys` imports `TrainHero` only through the barrel.
-- **Look (when the flag is on):** a 3D placeholder train on a `Canvas`, swaying about ±12° around the vertical axis so it stays side-on like the mockup (no 360° spin, no touch interaction). The canvas is opaque (`scene.background` is `colors.heroSky`) and there is no scenery layer. **Status (Round 3, proposed): switched off.** A transparent canvas (Round 2) and an opaque `scene.background` (Round 3) both drew nothing on the iOS 26.5 simulator, although the Canvas mounts (THREE and EXGL log lines, no errors). The only build that ever drew was a diagnostic build that also had: a raw `expo-gl` `GLView` (a second GL context) in the hero, an explicit `gl.setClearColor('#00ff00', 1)` in `onCreated`, a `gl.render` wrapper calling `gl.getError()` (a GL sync), an unlit red cube and extra logging, with the scenery hidden. Which difference mattered is unknown. The next 3D attempt re-adds those pieces **one at a time, the raw `GLView` first**. Open bug to fix before re-enabling: after the detail screen was opened the app stayed at about 100% CPU, on `Live` too (the loop was not paused) and on the list after Back. The static image (full flat art, a placeholder) is what ships and is also the 3D path's loading and error fallback.
+- **Look (when the flag is on):** a 3D placeholder train on a `Canvas`, swaying about ±12° around the vertical axis so it stays side-on like the mockup (no 360° spin, no touch interaction). The canvas is opaque (unverified: `scene.background` is `colors.heroSky`) and there is no scenery layer. **Status (Round 3, proposed): switched off.** A transparent canvas (Round 2) and an opaque `scene.background` (Round 3) both drew nothing on the iOS 26.5 simulator, although the Canvas mounts (THREE and EXGL log lines, no errors). The only build that ever drew was a diagnostic build that also had: a raw `expo-gl` `GLView` (a second GL context) in the hero, an explicit `gl.setClearColor('#00ff00', 1)` in `onCreated`, a `gl.render` wrapper calling `gl.getError()` (a GL sync), an unlit red cube and extra logging, with the scenery hidden. Which difference mattered is unknown. The next 3D attempt re-adds those pieces **one at a time, the raw `GLView` first**. Open bug to fix before re-enabling: after the detail screen was opened the app stayed at about 100% CPU, on `Live` too (the loop was not paused) and on the list after Back. The static image (full flat art, a placeholder) is what ships and is also the 3D path's loading and error fallback.
 - **Model:** the placeholder train below, shell closed.
 - **Frames (when the flag is on):** render continuously while the screen is focused and Overview is the active segment, and pause otherwise. If reduce-motion is on, show a fixed pose.
 - **Failure mode (when the flag is on):** if the scene throws while rendering, or its deferred load rejects, the page still ships with the static image. A module that throws while it is being loaded is reported by Metro as fatal (a red box in dev, probably a crash in a release build) and cannot fall back, so loading must not throw: `metro.config.js` resolves `three` as ESM, because `three` 0.186+ ships a Node-only `build/three.cjs` shim.
@@ -81,7 +81,7 @@ The hero card is far too small to pick seats in, so the peel gets the full-scree
 
 **Entry point.** The seat chip on the journey card opens `/booking/<tripId>/seats`. This is temporary until the search flow exists (Q2). The `Journey` fake gets a `tripId`.
 
-**Riskiest unverified piece: touch picking.** Tap → `instanceId` on an `InstancedMesh` under R3F native and `expo-gl`. Step 10 starts with this on the simulator, before any animation. If it fails, selection still works through the 2D grid.
+**Riskiest unverified piece: touch picking.** Tap → `instanceId` on an `InstancedMesh` under R3F native and `expo-gl`. Step 10 starts with this, before any animation (**blocked until 3D draws at all**, see the next-attempt plan in the checklist's Round 3 reviewer section; it needs a physical device or the one-at-a-time diagnostic route). If it fails, selection still works through the 2D grid.
 
 ## 3D dependencies and build
 
@@ -194,8 +194,9 @@ Each step ends green on `pnpm check`. Steps 1–7 build the whole page with a st
 - Screen matches the mockup at 390 pt wide (items 1–7 above).
 - Tab bar stays visible on `/journeys/<id>`; back chevron returns to the list.
 - The hero is the static image (the 3D hero is built but switched off behind `HERO_3D_ENABLED`), filling its 402×174 slot, clipped, with the app idle at about 0% CPU. The sway, and the static fallback on a scene error, are verified on a physical device when one exists (gate); not on the simulator.
-- The seat chip opens the picker; (the 3D parts of this bullet are blocked on 3D drawing at all, see step 10); tapping the train peels the shell and moves the camera over the seats; tapping a white seat holds it; the forced-reject seat goes back to white with a message.
-- With the 3D scene mocked or failing, the 2D grid shows the same seats and passes the same hold tests.
+- **M2a:** the seat chip opens the picker; tapping a free seat holds it (a spinner, then a ✓ and the seat card); the forced-reject seat goes back to free with a message and the previous seat stays selected.
+- **M2b (step 10, parked until 3D draws):** tapping the train peels the shell and moves the camera over the seats; tapping a seat in 3D holds it.
+- **M2b:** with the 3D scene mocked or failing, the 2D grid shows the same seats and passes the same hold tests.
 - Tests listed in steps 1–11 pass, plus `pnpm check`.
 
 ## Open questions (default if unanswered)
@@ -204,7 +205,7 @@ Each step ends green on `pnpm check`. Steps 1–7 build the whole page with a st
 2. **Entry to the seat picker:** the seat chip, tapping the hero, or a temporary button? *(default: the seat chip; temporary until the search flow exists in phase 1)*
 3. **Android route for gate 1:** local Android SDK or EAS Build? *(default: decided before gate 1; it is `codebase-structure.md` Q1)*
 4. **Icons:** `@expo/vector-icons`, or `react-native-svg` with hand-drawn icons? *(default: `@expo/vector-icons`, Ionicons: train, ticket, map, person, qr-code, walk)*
-5. **Hero art:** who supplies the scenery and static images? The illustration in the mockup is someone else's design, so don't ship it. *(default: flat placeholders, swap later)*
+5. **Hero art:** who supplies the static hero art? The illustration in the mockup is someone else's design, so don't ship it. *(default: flat placeholders, swap later)*
 6. **TanStack Query now,** or wait for phase 1? *(default: wait)*
 7. **Show ticket / map button:** no-op, or link to a `/ticket/[ticketId]` stub? *(default: no-op)*
 8. **Tab bar blur:** add `expo-blur`, or a solid fill? *(default: solid white; translucent was dropped because a translucent fill plus a shadow logs a shadow warning on iOS)*

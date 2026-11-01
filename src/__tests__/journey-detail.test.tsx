@@ -97,3 +97,13 @@ test('unknown journey id shows a not-found line and keeps the tab bar', async ()
   expect(screen.getByRole('button', { name: 'Back' })).toBeOnTheScreen();
   expect(tabBar().getAllByRole('tab')).toHaveLength(4);
 });
+
+test('the seat chip opens the picker', async () => {
+  const user = userEvent.setup();
+  await renderDetail();
+  await user.press(screen.getByRole('button', { name: 'Seat 7-E' }));
+  expect(screen).toHavePathname('/booking/trip-nozomi-32/seats');
+  expect(
+    screen.getByRole('heading', { name: 'Choose your seat · Car 7' }),
+  ).toBeOnTheScreen();
+});

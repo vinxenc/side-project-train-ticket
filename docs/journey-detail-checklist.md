@@ -25,7 +25,8 @@
 | | Plan steps | Delivers | Gate |
 | --- | --- | --- | --- |
 | **M1** | 0–7 | Full page with static data, floating tab bar, static hero (the 3D hero is built but switched off behind `HERO_3D_ENABLED`, Round 3), compared with the mockup | "Done when" bullets 1–3 of the plan as amended (the 3D sway moves to a physical-device gate); `pnpm check` green |
-| **M2** | 8–11 | Seat logic, 2D grid + hold flow, 3D seats + peel, seat card | Remaining "Done when" bullets; `pnpm check` green |
+| **M2a** | 8, 9, 11 | Seat logic (pure TypeScript), 2D seat grid + hold flow, seat card. No 3D (amended after Round 3: step 10 is parked) | `pnpm check` green and the 2D flow works on the simulator (chip → picker → hold → card → back) |
+| **M2b** | 10 | 3D seats + peel | **Parked** until 3D draws at all and the CPU gate passes (physical device, or the next 3D attempt); `pnpm check` green |
 
 Split kept as given. Reason it holds: step 7 is a natural review point (everything visible exists), and steps 8–9 (pure TS + 2D) do not depend on step 6. If step 6 stalls on GL, steps 8–9 can run first; step 10 needs step 6's dependencies, `jest.setup.ts` and `ErrorBoundary`.
 
@@ -74,7 +75,7 @@ Use `role` and `aria-*`, never legacy `accessibility*` props.
 - **S2 features import each other only via `index.ts`:** `grep -rnE "from '@/features/[a-z0-9-]+/[^']+'" src` prints nothing; `grep -rnE "from '(\.\./)+(journeys|booking|seat-map-3d|tickets|auth)(/|')" src/features` prints nothing outside the same feature.
 - **S3 `seat-map-3d` barrel never statically imports three:** `grep -rnE "from '(three|@react-three/[^']+)'" src` hits only `src/features/seat-map-3d/scene/**`, `models/**` and `seats/Seats.tsx`. `index.ts`, `types.ts`, `TrainHero.tsx`, `SeatMap.tsx`, `ErrorBoundary.tsx`, `fallback-2d/**`, `animation/**`, `seats/layoutToInstances.ts` must not match. From step 6 the barrel test also enforces this.
 - **S4 only fakes in `api/`:** `grep -rn "Nozomi 32" src --include=*.ts --include=*.tsx | grep -v __tests__` hits only `src/features/journeys/api/fake.ts`; seat statuses and the forced-reject seat live only in `src/features/booking/api/fake.ts`. Screens and components get data only from hooks.
-- **S5 no commit, no push:** `git rev-parse --short HEAD` is still `2145f26`; `git status` shows no `ios/` or `android/` (gitignored).
+- **S5 no commit, no push:** `git rev-parse --short HEAD` is `cd2fac1` (the user's M1 commit; M1 was `2145f26` before it); nothing staged; `git status` shows no `ios/` or `android/` (gitignored).
 - **S6 test conventions:** role/aria queries, no colour or snapshot assertions, every v14 call awaited.
 - **S7 no hex literals outside theme:** `grep -rnE "#[0-9A-Fa-f]{6}\b|rgba?\(" src --include=*.tsx --include=*.ts | grep -v "src/shared/theme" | grep -v __tests__` prints nothing. The 3D scene colours also come from theme tokens (`colors.seatFree`, `colors.seatTaken`, `colors.accent`, plus train body colours added to theme if needed).
 - **S8 no unrequested dependencies:** `git diff package.json` shows only the dependencies named in the step (Step 1: `@expo/vector-icons`, `expo-font`; Step 6: `expo-gl`, `expo-asset`, `expo-file-system`, `three`, `@react-three/fiber`, `@types/three`; plus `setupFilesAfterEnv`). `metro.config.js` (Round 2) is a config file, not a dependency. No drei, no `@react-spring/three`, no zustand, no gesture-handler, no `expo-image`, no `expo-blur`, no `expo-linear-gradient`.
@@ -319,7 +320,7 @@ Use `role` and `aria-*`, never legacy `accessibility*` props.
 - [x] Complete `src/features/seat-map-3d/scene/HeroScene.tsx` (default export): props `{ active: boolean; reduceMotion: boolean }`; `Canvas` with `pointerEvents="none"` (the native Canvas overlay claims every gesture, so without this the hero blocks page scrolling), `frameloop={active && !reduceMotion ? 'always' : 'demand'}` (not `'never'`, so a pose is still drawn), side-on camera, two lights, an opaque sky background (`<color attach="background" args={[colors.heroSky]} />`, Round 3); a `Sway` component whose `useFrame` sets `group.rotation.y = Math.sin(t * 1.05) * (12 * Math.PI) / 180` (about ±12°, 6 s period) using a ref, with no per-frame React state.
 - [x] Create `src/features/seat-map-3d/ErrorBoundary.tsx`: tiny class component (`fallback: ReactNode`, `onError?: () => void`, `getDerivedStateFromError`). Generic; step 10 reuses it.
 - [x] Create `src/features/seat-map-3d/useReduceMotion.ts`: `AccessibilityInfo.isReduceMotionEnabled()` on mount plus a `reduceMotionChanged` listener; remove the subscription on unmount.
-- [x] Rewrite `src/features/seat-map-3d/TrainHero.tsx`: props `{ active?: boolean }` (default `true`). Module-level `const HeroScene = lazy(async () => { const scene = require('./scene/HeroScene') as … | undefined; if (!scene?.default) throw new Error('HeroScene failed to load'); return scene; })` (a deferred `require`, not `import()`: babel-preset-expo leaves `import()` for Metro, so jest cannot run it; and Metro reports a module that throws while loading as fatal and returns `undefined` from `require`, so the guard turns that into a real error for the boundary). Render `<ErrorBoundary fallback={<StaticHero />}><Suspense fallback={<StaticHero />}><HeroScene active reduceMotion /></Suspense></ErrorBoundary>` (no scenery layer: the 3D canvas is opaque, Round 3) where the container `View` keeps `role="img"` and the `Shinkansen in front of Mt. Fuji` label (it is rendered once, outside the boundary and Suspense). `StaticHero` is only the decorative step-4 `Image` (`testID="hero-static"`, no role or label). Keep the barrel unchanged (still no static three).
+- [x] Rewrite `src/features/seat-map-3d/TrainHero.tsx`: props `{ active?: boolean }` (default `true`). Module-level `const HeroScene = lazy(async () => { const scene = require('./scene/HeroScene') as … | undefined; if (!scene?.default) throw new Error('HeroScene failed to load'); return scene; })` (a deferred `require`, not `import()`: babel-preset-expo leaves `import()` for Metro, so jest cannot run it; and Metro reports a module that throws while loading as fatal and returns `undefined` from `require`, so the guard turns that into a real error for the boundary). Render (in `Hero3D`, which only renders when `HERO_3D_ENABLED` is on; the shipped component is `HERO_3D_ENABLED ? <Hero3D/> : <StaticHero/>`, see the flag item) `<ErrorBoundary fallback={<StaticHero />}><Suspense fallback={<StaticHero />}><HeroScene active reduceMotion /></Suspense></ErrorBoundary>` (no scenery layer: the 3D canvas is opaque, Round 3) where the container `View` keeps `role="img"` and the `Shinkansen in front of Mt. Fuji` label (it is rendered once, outside the boundary and Suspense). `StaticHero` is only the decorative step-4 `Image` (`testID="hero-static"`, no role or label). Keep the barrel unchanged (still no static three).
 - [x] Edit `JourneyDetailScreen.tsx`: `const active = useIsFocused() && segment === 'overview'` (`useIsFocused` from `expo-router`, exported in SDK 58) and pass `<TrainHero active={active} />`.
 - [x] In `jest.setup.ts` (repo root; created in step 1 with the `expo-font` mock) add `jest.mock('@/features/seat-map-3d/scene/HeroScene', …)` whose default export renders a marker `View` with `testID="hero-scene"` (Round 3; it was `() => null`), so tests can tell "scene loaded" from the static fallback. Edit `package.json` → `"jest": { …, "setupFilesAfterEnv": ["<rootDir>/jest.setup.ts"] }`. Do **not** add `transformIgnorePatterns` unless a test run fails with `Cannot use import statement outside a module` for `three` (see Research (c)).
 
@@ -409,24 +410,20 @@ Use `role` and `aria-*`, never legacy `accessibility*` props.
 
 ---
 
-## Step 8 — Seat logic, pure TypeScript (M2)
+## Step 8 — Seat logic, pure TypeScript (M2a)
 
-- [ ] Create `src/features/seat-map-3d/types.ts`: `SeatStatus = 'available' | 'booked' | 'held'`; `SeatInfo = { code: string; row: number; col: string; pos: [number, number, number]; window: boolean }`; `SeatLayout = { tripId: string; car: number; layout: SeatInfo[]; status: Record<string, SeatStatus>; version: number }`; `SeatMapProps = { layout: SeatLayout['layout']; status: SeatLayout['status']; selectedSeat: string | null; pendingSeat: string | null; onSeatPress: (code: string) => void }`. No three imports.
-- [ ] Edit `src/features/seat-map-3d/index.ts`: add `export type { SeatStatus, SeatInfo, SeatLayout, SeatMapProps } from './types';`.
-- [ ] Create `src/features/seat-map-3d/animation/peelMachine.ts`: `PeelState = 'idle' | 'peeling' | 'interior'`, `PeelAction = { type: 'peel' } | { type: 'peelDone' }`, `initialPeelState = 'idle'`, `peelReducer(state, action)`. Pure, no imports.
-- [ ] Create `src/features/seat-map-3d/seats/layoutToInstances.ts` (pure; positions stay plain tuples, no `Matrix4`): `seatCodesByInstance(layout): string[]`; `type SeatVisual = 'free' | 'taken' | 'accent'`; `seatVisual(code, status, selectedSeat, pendingSeat): SeatVisual` (selected or pending → `accent`; `booked`/`held` → `taken`; else `free`); `seatForInstance(codes, instanceId, visualOf): string | undefined` (returns the code only if `visualOf(code) === 'free'`).
-- [ ] Create `src/features/booking/types.ts`: `SeatHold = { seat: string; expiresAt: string }` and `class SeatUnavailableError extends Error`.
-- [ ] Create `src/features/booking/api/fake.ts` (imports seat types via `@/features/seat-map-3d`): `export const FORCED_REJECT_SEAT = '5-B'`, `export const HOLD_DELAY_MS = 600`; `getSeatLayout(tripId, car): SeatLayout` (sync): car 7, rows 1–8, columns A–E, code `${row}-${col}`, `window` true for A and E, `pos` computed (x per column with a clear aisle gap between C and D and the car centred on x = 0, y constant, z increasing by row); `status` has an entry for every seat: booked `1-A 1-B 2-C 3-D 3-E 4-A 6-C 8-B`, held `2-A`, everything else available (including `5-B` and `7-E`); `version: 1`. `holdSeat(tripId, car, seat): Promise<SeatHold>`: after `HOLD_DELAY_MS` resolves with `expiresAt` (ISO string, now + 5 min) for an available seat; rejects with `SeatUnavailableError` for `FORCED_REJECT_SEAT` and for booked or held seats.
+> **Amended after Round 3 (A2):** build only what step 9 uses. `peelMachine`, `seatCodesByInstance`, `seatForInstance` and their tests moved to step 10 (nothing consumes them until 3D exists). `seatVisual` lives in `seat-map-3d/seatVisual.ts` (not in a 3D file) and now distinguishes `pending` and `selected` so the grid can show non-colour cues.
+
+- [x] Create `src/features/seat-map-3d/types.ts`: `SeatStatus = 'available' | 'booked' | 'held'`; `SeatInfo = { code: string; row: number; col: string; pos: [number, number, number]; window: boolean }`; `SeatLayout = { tripId: string; car: number; layout: SeatInfo[]; status: Record<string, SeatStatus>; version: number }`; `SeatMapProps = { layout: SeatLayout['layout']; status: SeatLayout['status']; selectedSeat: string | null; pendingSeat: string | null; onSeatPress: (code: string) => void }`. No three imports. Keep `pos` (it is the `architecture.md` contract; step 10 uses it).
+- [x] Edit `src/features/seat-map-3d/index.ts`: add `export type { SeatStatus, SeatInfo, SeatLayout, SeatMapProps } from './types';`.
+- [x] Create `src/features/seat-map-3d/seatVisual.ts` (pure): `type SeatVisual = 'free' | 'taken' | 'pending' | 'selected'`; `seatVisual(code, status, selectedSeat, pendingSeat): SeatVisual`: `code === pendingSeat` → `pending`; `code === selectedSeat` → `selected`; `status[code]` is `booked` or `held` → `taken`; else `free`. (Step 10 maps `pending` and `selected` both to the accent colour in 3D.)
+- [x] Create `src/features/booking/types.ts`: `SeatHold = { seat: string; expiresAt: string }` and `class SeatUnavailableError extends Error`.
+- [x] Create `src/features/booking/api/fake.ts` (imports seat types via `@/features/seat-map-3d`): `export const FORCED_REJECT_SEAT = '5-B'`, `export const HOLD_DELAY_MS = 600`, `export const HOLD_TTL_MS = 5 * 60 * 1000`; `getSeatLayout(tripId, car): SeatLayout` (sync): car 7, rows 1–8, columns A–E, code `${row}-${col}`, `window` true for A and E, `pos` computed (x per column with a clear aisle gap between C and D and the car centred on x = 0, y constant, z increasing by row); `status` has an entry for every seat: booked `1-A 1-B 2-C 3-D 3-E 4-A 6-C 8-B`, held `2-A`, everything else available (including `5-B` and `7-E`); `version: 1`. `holdSeat(tripId, car, seat): Promise<SeatHold>`: after `HOLD_DELAY_MS` resolves with `expiresAt` (ISO string, now + `HOLD_TTL_MS`) for an available seat; rejects with `SeatUnavailableError` for `FORCED_REJECT_SEAT` and for booked or held seats.
 
 **Unit/component tests to write** (pure; no rendering)
-- [ ] `src/features/seat-map-3d/__tests__/peelMachine.test.ts`
-  - `starts idle`; `idle + peel goes to peeling`; `peeling + peelDone goes to interior`.
-  - `ignores peelDone while idle`; `ignores peel while peeling`; `ignores peel and peelDone while in interior`.
-- [ ] `src/features/seat-map-3d/__tests__/layoutToInstances.test.ts` (inline fixture of 3 seats)
-  - `seatCodesByInstance keeps layout order`.
-  - `seatVisual maps available to free`; `maps booked and held to taken`; `selected seat is accent`; `pending seat is accent`.
-  - `seatForInstance returns the code for a free seat`; `returns undefined for a taken seat`; `returns undefined for the accent seat`; `returns undefined for an out-of-range or undefined instanceId`.
-- [ ] `src/features/booking/__tests__/fake.test.ts` (`jest.useFakeTimers()` for the hold tests)
+- [x] `src/features/seat-map-3d/__tests__/seatVisual.test.ts` (inline status fixture)
+  - `maps an available seat to free`; `maps booked and held seats to taken`; `the selected seat is selected`; `the pending seat is pending`; `pending wins over selected for the same seat`.
+- [x] `src/features/booking/__tests__/fake.test.ts` (`jest.useFakeTimers()` for the hold tests)
   - `layout has car 7, 8 rows by 5 columns, 40 unique codes`.
   - `window seats are exactly columns A and E` (16 seats).
   - `positions are finite and unique, x increases from A to E, z increases with row`.
@@ -435,73 +432,84 @@ Use `role` and `aria-*`, never legacy `accessibility*` props.
   - `holdSeat rejects the forced-reject seat 5-B`; `holdSeat rejects booked and held seats`.
 
 **Commands**
-- [ ] `pnpm check` → green.
-- [ ] `grep -rnE "from '(three|react-native|react)" src/features/seat-map-3d/animation src/features/seat-map-3d/seats/layoutToInstances.ts` → no output (pure files).
+- [x] `pnpm check` → green.
+- [x] `grep -nE "from '(three|react-native|react)" src/features/seat-map-3d/seatVisual.ts src/features/seat-map-3d/types.ts` → no output (pure files).
 
-**Acceptance:** all seat rules are unit-tested without rendering; `5-B` is the only forced reject; the reducer has exactly two actions.
+**Acceptance:** all seat rules are unit-tested without rendering; `5-B` is the only forced reject; `seatVisual` has four outputs.
 
 **Simulator script:** none (no UI change). Tester runs `pnpm test -- --verbose` and confirms the test names above appear and pass.
 
-**Review points:** pure files import nothing from three or React Native (S3); fakes only in `booking/api/fake.ts` (S4); `booking` imports seat types via the barrel (S2); the fake's timer is the only timer; `Record<string, SeatStatus>` covers all seats.
+**Review points:** pure files import nothing from three, React or React Native (S3); fakes only in `booking/api/fake.ts` (S4); `booking` imports seat types via the barrel (S2); the fake's timer is the only timer; `Record<string, SeatStatus>` covers all seats; no peel or instance code exists yet.
 
 ---
 
-## Step 9 — Seat picker with the 2D grid (M2)
+## Step 9 — Seat picker with the 2D grid (M2a)
 
-- [ ] Create `src/features/seat-map-3d/fallback-2d/SeatGrid2D.tsx`: takes `SeatMapProps`. Rows 1–8, columns A B C, an aisle gap, D E; column letters on top, row numbers at the side. Each seat is a `Pressable` (`role="button"`, `aria-label="Seat 5-B"`); visual from `seatVisual`; pending → `aria-busy`, selected → `aria-selected`, taken → `aria-disabled` and `disabled`; free seats call `onSeatPress(code)`. Colours from theme.
-- [ ] Create `src/features/seat-map-3d/SeatMap.tsx`: eager, 2D only for now: `export function SeatMap(props: SeatMapProps) { return <SeatGrid2D {...props} />; }`.
-- [ ] Edit `src/features/seat-map-3d/index.ts`: also export `SeatMap`, `SeatGrid2D`.
-- [ ] Create `src/features/booking/hooks/useSeatLayout.ts`: `useSeatLayout(tripId, car): SeatLayout` (sync, calls `getSeatLayout`).
-- [ ] Create `src/features/booking/hooks/useSeatHold.ts`: `useSeatHold(tripId, car) → { selectedSeat: string | null; pendingSeat: string | null; error: string | null; requestSeat(code: string): void }`. Rules: `requestSeat` clears `error`, sets `pendingSeat = code`, calls `holdSeat`; a request counter drops stale results (latest wins); granted → `selectedSeat = code`, `pendingSeat = null`; rejected → `pendingSeat = null`, `selectedSeat` unchanged, `error = 'Seat <code> is no longer available. Pick another seat.'`; results after unmount are ignored.
-- [ ] Create `src/features/booking/screens/SeatPickerScreen.tsx`: `tripId` via `useLocalSearchParams<{ tripId: string }>()`, car fixed at 7 (named constant). Header: `IconButton` `chevron-back` label `Back` (`canGoBack ? back : replace('/journeys')`) and title `Choose your seat · Car 7`. Body: `SeatMap` (props from the two hooks), a `role="alert"` text for `error` (rendered only when set), helper line `Tap a white seat to hold it.`
-- [ ] Create `src/features/booking/index.ts`: `export { SeatPickerScreen } from './screens/SeatPickerScreen';`
-- [ ] Create `src/app/booking/[tripId]/seats.tsx`: `export { SeatPickerScreen as default } from '@/features/booking';` (outside `(tabs)`, so no tab bar).
-- [ ] Edit `JourneyDetailScreen.tsx`: `onSeatPress={() => router.push(`/booking/${journey.tripId}/seats`)}`.
+> **Amended after Round 3 (A3-A7):** tokens first; `SeatMap` is a one-line `SeatGrid2D` pass-through (no toggle, no `ErrorBoundary`, no `lazy`, no `ActivityIndicator`, no `SeatScene` mock, no "Switch to 2D map" helper: all of that is step 10); the barrel exports `SeatMap` and the types only; `useSeatLayout` memoises; the tester gets a computed tap table (`mobilecli` is missing, so seats cannot be tapped by label); the picker gets a CPU-idle check.
+
+- [x] **Tokens first.** `src/shared/theme/colors.ts`: `seatBorder: '#7C8794'` (3.27:1 on the page `#EFF3F6`, 3.65:1 on white, so free seats stop being holes in the page; today `seatFree` on `background` is 1.12:1), `seatTakenGlyph: '#4A5560'` (4.07:1 on `seatTaken`), `onAccent: '#FFFFFF'` (6.09:1 on `accent`). `src/shared/theme/spacing.ts` `layout`: `seatCell: 48`, `seatGap: 8`, `aisleGap: 28` (visible distance between column C and D), `seatRowLabel: 24`, `seatHeaderRow: 24` (height of the letters row).
+- [x] Create `src/features/seat-map-3d/fallback-2d/SeatGrid2D.tsx`: takes `SeatMapProps`. Rows from the layout, columns A B C, an aisle, D E; column letters on top, row numbers at the side; the grid is centred horizontally. Each seat is a `Pressable` (`role="button"`, `aria-label="Seat 5-B"`) sized `layout.seatCell`; visual from `seatVisual`, **never colour alone**: `free` = `seatFree` fill with a `seatBorder` border; `taken` (booked or held) = `seatTaken` fill with a ✕ in `seatTakenGlyph`; `selected` = `accent` fill with a white ✓ (`onAccent`); `pending` = `accent` border with an `ActivityIndicator`. ARIA: pending → `aria-busy`, selected → `aria-selected`, taken → `aria-disabled` and `disabled`; free (and selected, and pending) seats call `onSeatPress(code)`. Colours and sizes from the theme.
+- [x] Create `src/features/seat-map-3d/SeatMap.tsx`: `export function SeatMap(props: SeatMapProps) { return <SeatGrid2D {...props} />; }` and nothing else.
+- [x] Edit `src/features/seat-map-3d/index.ts`: also export `SeatMap` (and the types). `SeatGrid2D` is not exported (no test outside the feature needs it).
+- [x] Create `src/features/booking/hooks/useSeatLayout.ts`: `useSeatLayout(tripId, car): SeatLayout` = `useMemo(() => getSeatLayout(tripId, car), [tripId, car])` so the 40-seat array keeps its identity across renders.
+- [x] Create `src/features/booking/hooks/useSeatHold.ts`: `useSeatHold(tripId, car) → { selectedSeat: string | null; pendingSeat: string | null; error: string | null; requestSeat(code: string): void }`. Rules: `requestSeat` clears `error`, sets `pendingSeat = code`, calls `holdSeat`; a request counter drops stale results (latest wins); granted → `selectedSeat = code`, `pendingSeat = null`; rejected → `pendingSeat = null`, `selectedSeat` unchanged, `error = 'Seat <code> is no longer available. Pick another seat.'`. (Updates after unmount need no code: React 19 drops them silently.)
+- [x] Create `src/features/booking/screens/SeatPickerScreen.tsx`: `tripId` via `useLocalSearchParams<{ tripId: string }>()`, car fixed at 7 (named constant). Header: `IconButton` `chevron-back` label `Back` (`canGoBack ? back : replace('/journeys')`) and title `Choose your seat · Car 7`. Body: `SeatMap` (props from the two hooks), a `role="alert"` text for `error` (rendered only when set), helper line `Tap a free seat to hold it.`
+- [x] Create `src/features/booking/index.ts`: `export { SeatPickerScreen } from './screens/SeatPickerScreen';`
+- [x] Create `src/app/booking/[tripId]/seats.tsx`: `export { SeatPickerScreen as default } from '@/features/booking';` (outside `(tabs)`, so no tab bar).
+- [x] Edit `JourneyDetailScreen.tsx`: `onSeatPress={() => router.push(`/booking/${journey.tripId}/seats`)}`.
 
 **Unit/component tests to write**
-- [ ] `src/features/seat-map-3d/__tests__/SeatGrid2D.test.tsx` (inline 2-row fixture; no `booking` import)
+- [x] `src/features/seat-map-3d/__tests__/SeatGrid2D.test.tsx` (inline 2-row fixture; no `booking` import)
   - `renders one button per seat`.
   - `pressing a free seat calls onSeatPress with its code`.
   - `booked and held seats are disabled and do not call onSeatPress`.
-  - `selected seat is aria-selected` and `pending seat is busy`.
-- [ ] `src/features/booking/__tests__/useSeatHold.test.tsx` (`await renderHook`, fake timers)
+  - `the selected seat is aria-selected` and `the pending seat is busy`.
+  - `taken seats show a cross, the selected seat a check` (non-colour cues, by text).
+- [x] `src/features/booking/__tests__/useSeatHold.test.tsx` (`await renderHook`, fake timers)
   - `starts with nothing selected, pending or erroring`.
   - `requestSeat sets pending and then selected once the hold resolves` (advance 600 ms).
   - `a rejected seat clears pending, keeps the selection and sets the error message` (5-B).
   - `choosing another seat replaces the previous hold` (7-E selected, request 3-C → after 600 ms selected is 3-C).
   - `race: 3-A then 3-B before 3-A resolves leaves only 3-B selected`.
+  - `race: a stale rejection is ignored while a newer request is pending` (5-B then 7-E).
   - `a rejected second request keeps the first selection`.
   - `a new request clears the previous error`.
-  - `ignores a hold result after unmount` (unmount, advance timers, no throw).
-- [ ] `src/__tests__/seat-picker.test.tsx` (`renderRouter('./src/app', { initialUrl: '/booking/trip-nozomi-32/seats' })`, so only one screen is mounted)
+  - `ignores a hold result after unmount` (a smoke test: unmount, advance timers, no throw).
+- [x] `src/features/booking/__tests__/useSeatLayout.test.tsx`: `keeps the same layout object across re-renders`.
+- [x] `src/__tests__/seat-picker.test.tsx` (`renderRouter('./src/app', { initialUrl: '/booking/trip-nozomi-32/seats' })`, so only one screen is mounted)
   - `tapping a free seat shows busy and then selected` → press `Seat 7-E`; `toBeBusy()`; `await screen.findByRole('button', { name: 'Seat 7-E', selected: true })`.
   - `the forced-reject seat goes back to free with a message` → press `Seat 5-B`; busy; `await screen.findByRole('alert')` has the text; `Seat 5-B` neither busy nor selected.
   - `a booked seat cannot be pressed` → `Seat 1-A` `toBeDisabled()`.
   - `the back button leaves the picker` → press `Back`; `toHavePathname('/journeys')`.
   - `has no tab bar` → `queryByTestId('main-tab-bar')` absent.
-- [ ] Add to `src/__tests__/journey-detail.test.tsx`: `the seat chip opens the picker` → press `Seat 7-E`; `toHavePathname('/booking/trip-nozomi-32/seats')`.
+- [x] Add to `src/__tests__/journey-detail.test.tsx`: `the seat chip opens the picker` → press `Seat 7-E`; `toHavePathname('/booking/trip-nozomi-32/seats')`.
 
 **Commands**
-- [ ] `pnpm check` → green.
+- [x] `pnpm check` → green.
 
-**Acceptance:** from the seat chip the user reaches a full-screen 2D map; a free seat goes busy then selected; `5-B` reverts to free with a message; booked and held seats do nothing; Back returns.
+**Acceptance:** from the seat chip the user reaches a full-screen 2D map; a free seat goes busy then selected; `5-B` reverts to free with a message; booked and held seats do nothing; Back returns; the picker is idle at about 0% CPU.
+
+**Tap table for the tester (computed from the layout tokens, not measured; `mobilecli` is missing).** Screen 402×874 pt, top inset 62, header 44 high with 8 above it, body padding 16. A row is `label(24) gap(8) A(48) gap(8) B(48) gap(8) C(48) aisle(28) D(48) gap(8) E(48)`, so the grid is 324 wide and starts at x = (402 − 324) / 2 = 39. Seat centre x: **A 95, B 151, C 207, D 283, E 339**. The first seat row's top is 62 + 8 + 44 + 16 (body padding) + 24 (letters row) + 8 (gap) = 162; row r centre y = 162 + (r − 1) × 56 + 24, so **row 1 y 186, 2 y 242, 3 y 298, 4 y 354, 5 y 410, 6 y 466, 7 y 522, 8 y 578**. Examples: `7-E` (339, 522), `3-C` (207, 298), `5-B` (151, 410), `1-A` (95, 186). Verify once with a screenshot (the column letters A to E sit at the x values above, 24 pt above row 1); adjust if the real layout differs and record the correction in the Round log.
 
 **Simulator script**
-1. Detail page → tap the chip `7-E`. Expect the picker: no tab bar, header `Choose your seat · Car 7` with a back chevron, a grid of 8 rows by A B C | D E.
-2. Expect grey seats at 1-A, 1-B, 2-C, 3-D, 3-E, 4-A, 6-C, 8-B and 2-A; all others white.
-3. Tap 7-E. Expect an accent colour right away; it stays accent after about 0.6 s.
-4. Tap 3-C. Expect 3-C accent; after about 0.6 s 7-E is white again.
-5. Tap 5-B. Expect accent for about 0.6 s, then white, and under the grid the line `Seat 5-B is no longer available. Pick another seat.`; 3-C stays accent.
-6. Tap a grey seat (1-A). Expect nothing.
-7. Tap Back. Expect the detail page with the tab bar.
+1. Detail page → tap the chip `7-E`. Expect the picker: no tab bar, header `Choose your seat · Car 7` with a back chevron, a grid of 8 rows by A B C | D E with the letters on top and the row numbers at the side.
+2. Expect grey seats with a ✕ at 1-A, 1-B, 2-C, 3-D, 3-E, 4-A, 6-C, 8-B and 2-A; all others white with a visible grey-blue border.
+3. Tap 7-E (339, 522). Expect a spinner on it right away, then (after about 0.6 s) an accent fill with a white ✓.
+4. Tap 3-C (207, 298). Expect a spinner on 3-C; after about 0.6 s 3-C has the ✓ and 7-E is white again.
+5. Tap 5-B (151, 410). Expect a spinner for about 0.6 s, then white, and under the grid the line `Seat 5-B is no longer available. Pick another seat.`; 3-C keeps its ✓.
+6. Tap a grey seat (1-A at 95, 186). Expect nothing.
+7. CPU: `top -pid <pid> -l 3` on the picker, idle for 10 s: about 0%.
+8. Tap Back. Expect the detail page with the tab bar.
 
-**Review points:** `useSeatHold` race, stale-result and unmount handling (S6-style tests exist for each); ARIA state mapping instead of colour tests; `SeatGrid2D` has no three import (S3); `booking` reaches seat types and components via the barrel only, `seat-map-3d` tests do not import `booking` (S2); screens call hooks only, never `api/` (S4); picker route sits outside `(tabs)`; no toast library; `router.push` target equals `/booking/<tripId>/seats`; S1, S5, S7.
+**Review points:** `useSeatHold` race and reject handling (a test for each); ARIA state mapping and the non-colour cues instead of colour tests; `SeatGrid2D` has no three import (S3); `booking` reaches seat types and `SeatMap` via the barrel only, `seat-map-3d` tests do not import `booking` (S2); screens call hooks only, never `api/` (S4); picker route sits outside `(tabs)`; no toast library; `router.push` target equals `/booking/<tripId>/seats`; `SeatMap` is exactly a pass-through; S1, S5, S7.
 
 ---
 
-## Step 10 — 3D seats and peel (M2)
+## Step 10 — 3D seats and peel (M2b, parked)
 
 > **Blocked (Round 3, proposed):** nothing 3D has drawn on the iOS 26.5 simulator, so the tap-picking spike 10a and everything after it cannot be verified until 3D draws at all (see the step 6 spike item: re-add the diagnostic's pieces one at a time, raw `GLView` first), and the open CPU bug is fixed. Steps 8, 9 and 11 do not depend on this.
+
+> **Moved here from step 8 and 9 (amended after Round 3):** (a) `src/features/seat-map-3d/animation/peelMachine.ts` (`PeelState = 'idle' | 'peeling' | 'interior'`, `PeelAction = { type: 'peel' } | { type: 'peelDone' }`, `initialPeelState`, `peelReducer`; pure) with `peelMachine.test.ts` (`starts idle`; `idle + peel goes to peeling`; `peeling + peelDone goes to interior`; `ignores peelDone while idle`; `ignores peel while peeling`; `ignores peel and peelDone while in interior`). (b) `src/features/seat-map-3d/seats/layoutToInstances.ts` (pure): `seatCodesByInstance(layout): string[]` and `seatForInstance(codes, instanceId, visualOf): string | undefined` (returns the code only if `visualOf(code) === 'free'`; `visualOf` is `seatVisual`) with `layoutToInstances.test.ts` (`seatCodesByInstance keeps layout order`; `seatForInstance returns the code for a free seat`; `returns undefined for a taken seat`; `returns undefined for the selected or pending seat`; `returns undefined for an out-of-range or undefined instanceId`). (c) In 3D, `pending` and `selected` both use the accent colour (`Seats.tsx`). (d) `SeatMap` stops being a pass-through: the toggle, `ErrorBoundary`, `Suspense`, guarded `require` loader (not `import()`) for `SeatScene`, and the `SeatScene` jest mock plus the "Switch to 2D map" helper in `seat-picker.test.tsx` all arrive with this step, as the items below describe (read their `lazy(() => import(...))` text as the guarded `require` pattern of `TrainHero.tsx`). (e) `camera.up` must be set for the top-down view (looking straight down with the default up vector is degenerate in `lookAt`).
 
 - [ ] **Spike 10a, before any animation.** Create `src/features/seat-map-3d/scene/SeatScene.tsx` minimal: `Canvas` plus one `<instancedMesh args={[boxGeometry, material, 40]}>` positioned from `layout[i].pos`, `onClick={(e) => { e.stopPropagation(); console.log('instanceId', e.instanceId); }}`. Temporarily render it from `SeatMap`. On the simulator tap three different seats; the Metro terminal must print distinct `instanceId` values equal to the index of the tapped seat in `layout`. Could not be verified from docs. Record **PASS/FAIL** in the Round log. On FAIL stop step 10: selection still works through the 2D grid; report which event fields are present (`e.intersections`, `e.instanceId`).
 - [ ] Create `src/features/seat-map-3d/seats/Seats.tsx` (three allowed): one `InstancedMesh`; `useLayoutEffect` sets matrices from the tuple `pos` (conversion to `Matrix4` happens here, reusing one scratch object) and colours with `setColorAt` from `seatVisual` (`colors.seatFree`, `colors.seatTaken`, `colors.accent`; no hex literals); set `instanceMatrix.needsUpdate` and `instanceColor.needsUpdate`; `onClick` → `seatForInstance(codes, e.instanceId, visualOf)` → `onSeatPress(code)`.
@@ -542,34 +550,37 @@ Use `role` and `aria-*`, never legacy `accessibility*` props.
 
 ---
 
-## Step 11 — Seat card and final pass (M2)
+## Step 11 — Seat card and final pass (M2a)
 
-- [ ] Create `src/features/booking/components/SeatCard.tsx`: props `{ seat: SeatInfo; onContinue: () => void }`. Shows `Seat <code>` (heading) and the label `Window seat` (columns A, E), `Middle seat` (B) or `Aisle seat` (C, D) (Decision 4), and a `Button` `Continue` (no-op from the screen, comment `no-op until checkout`).
-- [ ] Edit `SeatPickerScreen.tsx`: render `SeatCard` only while `selectedSeat` is set (granted), not while pending or after a rejection with nothing selected. The "Mt. Fuji side" note is not modelled.
+> **Amended after Round 3 (A8):** M2a has no hero sway, peel or 2D/3D toggle, so the acceptance and the whole-flow script below cover the 2D flow only.
+
+- [x] Create `src/features/booking/components/SeatCard.tsx`: props `{ seat: SeatInfo; onContinue: () => void }`. Shows `Seat <code>` (heading) and the label `Window seat` (columns A, E), `Middle seat` (B) or `Aisle seat` (C, D) (Decision 4), and a `Button` `Continue` (no-op from the screen, comment `no-op until checkout`).
+- [x] Edit `SeatPickerScreen.tsx`: render `SeatCard` only while `selectedSeat` is set (granted), not while pending or after a rejection with nothing selected. The "Mt. Fuji side" note is not modelled.
 - [ ] Final `pnpm check`; full simulator pass; Round log summary of everything noted along the way.
 
 **Unit/component tests to write**
-- [ ] `src/features/booking/__tests__/SeatCard.test.tsx`
+- [x] `src/features/booking/__tests__/SeatCard.test.tsx`
   - `shows the seat code and Window seat for column E`; `shows Middle seat for column B`; `shows Aisle seat for column C`; `Continue is a button and calls onContinue`.
-- [ ] Add to `src/__tests__/seat-picker.test.tsx` (after the grid helper from step 10):
+- [x] Add to `src/__tests__/seat-picker.test.tsx`:
   - `the card is hidden before any seat is chosen`.
   - `the card is hidden while a hold is pending, then shows the seat after it is granted` → `Seat 7-E` and `Window seat`.
   - `the card is not shown after a rejected hold with nothing selected` (5-B first).
   - `choosing another seat updates the card` → 7-E then 3-C shows `Seat 3-C` and `Aisle seat`.
+  - `a rejected hold keeps the previous seat and its card` → 3-C then 5-B: the card still says `Seat 3-C`.
 
 **Commands**
-- [ ] `pnpm check` → green: lint, `tsc`, all suites, prettier.
-- [ ] `git status` → only intended source, test, asset, `package.json`, lockfile and `jest.setup.ts` changes; no `ios/`; HEAD still `2145f26` (S5).
+- [x] `pnpm check` → green: lint, `tsc`, all suites, prettier.
+- [x] `git status` → only intended source, test and docs changes (no `package.json` or lockfile change); no `ios/`.
 
-**Acceptance:** the plan's full "Done when" list holds: page matches the mockup; tab bar stays on `/journeys/<id>` and back returns; hero sways and falls back to the static image; the chip opens the picker; peel moves the camera; a white seat holds; the forced reject reverts with a message; with the scene mocked or failing the 2D grid shows the same seats and passes the same hold tests; all tests in steps 1–11 plus `pnpm check` pass.
+**Acceptance (M2a):** the seat chip on the journey card opens the full-screen 2D picker (no tab bar); a free seat shows a spinner, then the ✓; the forced reject (`5-B`) reverts with the message and the previous seat stays selected; booked and held seats do nothing; the card shows `Seat 7-E` / `Window seat`, then `Seat 3-C` / `Aisle seat`; `Continue` does nothing; Back returns to the detail page with the tab bar; the picker is idle at about 0% CPU; all tests in steps 1–9 and 11 plus `pnpm check` pass. No sway, peel or toggle (step 10, parked).
 
-**Simulator script (whole flow)**
-1. Cold launch. Expect the Journeys list stub; open the journey; see the full detail page.
-2. Tap the seat chip. Peel the train (tap). Tap 7-E. Expect the card `Seat 7-E` / `Window seat` and a `Continue` button; tap `Continue`: nothing.
-3. Tap 3-C. Expect the card to change to `Seat 3-C` / `Aisle seat`. Tap 5-B. Expect the message and the card still showing 3-C.
-4. Tap `Switch to 2D map`. Expect the same seat selected and the card unchanged.
+**Simulator script (whole M2a flow; tap positions from the step 9 table)**
+1. Cold launch. Expect the Journeys list stub; open the journey; see the full detail page with the static hero.
+2. Tap the seat chip `7-E`. Expect the picker with no tab bar. Tap 7-E (339, 522). Expect the card `Seat 7-E` / `Window seat` and a `Continue` button once the hold lands; tap `Continue`: nothing.
+3. Tap 3-C (207, 298). Expect the card to change to `Seat 3-C` / `Aisle seat`. Tap 5-B (151, 410). Expect the message and the card still showing 3-C.
+4. Tap a free middle seat, 7-B (151, 522). Expect the card `Seat 7-B` / `Middle seat`.
 5. Tap Back. Expect the detail page and tab bar. Tap the `Tickets` tab (bottom bar), then the `Journeys` tab.
-6. Note any crash, red screen or yellow warning with its text.
+6. Idle CPU on the picker and on the detail page about 0%. Note any crash, red screen or yellow warning with its text.
 
 **Review points:** S1–S8 on the full diff; `SeatCard` is presentational; `Continue` is a no-op; labels follow Decision 4; only intended files changed; every `- [ ]` in this file ticked or explained.
 
@@ -2009,3 +2020,244 @@ Optional step N-1, only if cheap: try the "My Mac (Designed for iPhone)" run des
 **M2a (steps 8, 9, 11, no 3D): GO after Part 4. M2b (step 10): NO-GO** until a minimal 3D configuration draws and the CPU gate passes (Part 5).
 
 **Housekeeping for the coordinator.** I filled only the last `### Round 3 — reviewer` heading. The two headings above it, `### Round 3 — reviewer (part C)` and `### Round 3 — reviewer (re-run)`, are still empty and are not mine to fill.
+
+### M2a Round 1 — coder
+
+Steps 8, 9 and 11 are coded without 3D, after amending the checklist and plan as the reviewer's Part 4 (A1-A9) asked. Step 10 is untouched (parked). Nothing was run on the simulator or Metro, so every on-device line is under "Tester must run".
+
+**Result:** `pnpm check` green: eslint 0 errors / 0 warnings, `tsc` 0 errors, jest `Test Suites: 28 passed, 28 total` / `Tests: 117 passed, 117 total` (M1: 21 / 66), prettier `All matched files use Prettier code style!`. `pnpm install --frozen-lockfile`: "Done", `package.json`, `pnpm-lock.yaml` and `app.json` unchanged (no new dependency). `npx expo export --platform ios --no-bytecode` bundles (1611 modules). S1, S2 and S7 greps print nothing; S3 hits only `models/PlaceholderTrain.tsx` and `scene/HeroScene.tsx`; S4: `Nozomi 32` only in `journeys/api/fake.ts`, the forced-reject seat and the booked/held data only in `booking/api/fake.ts` (`seatVisual.ts` and `types.ts` only name the status type and compare it); the step 8 pure-file grep (`three|react-native|react`) prints nothing. HEAD is `cd2fac1` (your commit), nothing staged, no `ios/` in `git status`. All working-tree changes are uncommitted.
+
+**Step 0, the amendments (docs and two code wording fixes)**
+- Checklist: Milestones table split into M2a (8, 9, 11) and M2b (10, parked); step 8 rewritten (only what step 9 uses; `seatVisual.ts` in `seat-map-3d/`, four outputs `free | taken | pending | selected`); step 9 rewritten (tokens first, `SeatMap` a one-line pass-through, barrel exports `SeatMap` and the types, memoised `useSeatLayout`, the computed tap table, a CPU-idle line); step 10 header now "M2b, parked" with a note listing what moved there (`peelMachine`, `seatCodesByInstance`, `seatForInstance` and their tests, the accent mapping, the `SeatMap` toggle/boundary/guarded `require` loader, the `SeatScene` mock and helper, `camera.up`); step 11 rewritten for M2a (no sway, peel or toggle); the step 6 `TrainHero` bullet clause about `Hero3D`.
+- Plan: line 3 ("Nothing is built yet"), the "Riskiest unverified piece" line (step 10 blocked), "Done when" bullet 4 split into M2a and M2b, Q5 ("static hero art"), and "(unverified)" next to the opaque canvas.
+- `HeroScene.tsx` comment now says neither a transparent nor an opaque canvas drew anything and only the diagnostic build ever drew; the `HeroScene.test.tsx` test is retitled `sets the sky background colour`.
+
+**Step 8 (pure TypeScript)**
+- `src/features/seat-map-3d/types.ts` (`SeatStatus`, `SeatInfo` with `pos`, `SeatLayout`, `SeatMapProps`), exported as types from the barrel; `seatVisual.ts` (`pending` beats `selected` beats `taken` beats `free`).
+- `src/features/booking/types.ts` (`SeatHold`, `SeatUnavailableError`), `src/features/booking/api/fake.ts` (`FORCED_REJECT_SEAT = '5-B'`, `HOLD_DELAY_MS = 600`, `HOLD_TTL_MS`, `getSeatLayout` for car 7: rows 1-8, columns A-E, booked `1-A 1-B 2-C 3-D 3-E 4-A 6-C 8-B`, held `2-A`, `pos` with an aisle between C and D and the car centred on x = 0; `holdSeat` resolves after 600 ms with `expiresAt` = now + 5 min and rejects with `SeatUnavailableError` for `5-B`, booked and held seats).
+
+**Step 9 (2D picker)**
+- Tokens first: `colors.seatBorder #7C8794`, `seatTakenGlyph #4A5560`, `onAccent #FFFFFF`; `layout.seatCell 48`, `seatGap 8`, `aisleGap 28`, `seatRowLabel 24`, `seatHeaderRow 24` (the letters row has a fixed height, so the tap table's y values hold); plus `radius.seat 10`, `typography.gridLabel` and `seatGlyph`.
+- `fallback-2d/SeatGrid2D.tsx`: rows from the layout, letters on top, row numbers at the side, centred; per seat `role="button"`, `aria-label="Seat 5-B"`, `aria-busy` (pending), `aria-selected` (selected), `aria-disabled` and `disabled` (taken). Cues beyond colour: free = white with a `seatBorder` border, taken = grey with ✕, selected = accent with a white ✓, pending = accent border with an `ActivityIndicator`. `SeatMap.tsx` is exactly `<SeatGrid2D {...props} />`.
+- `booking/hooks/useSeatLayout.ts` (memoised), `useSeatHold.ts` (latest request wins; granted → selected, pending cleared; rejected → pending cleared, selection kept, the inline message), `screens/SeatPickerScreen.tsx` (header with `Back` and `Choose your seat · Car 7`, the map, a `role="alert"` message, helper `Tap a free seat to hold it.`), `booking/index.ts`, route `src/app/booking/[tripId]/seats.tsx` (outside `(tabs)`: no tab bar), and the journey card's seat chip now `router.push`es `/booking/<tripId>/seats`.
+
+**Step 11 (seat card)**
+- `booking/components/SeatCard.tsx` (`Seat <code>`, `Window seat` for A and E, `Middle seat` for B, `Aisle seat` for C and D, a `Continue` button) shown in a footer below the scroll area only while `selectedSeat` is set; `Continue` is a no-op (comment `no-op until checkout`).
+
+**Deviations and why**
+- `seatVisual` has four outputs (the amendments need `pending` and `selected` apart for the non-colour cues); in 3D (step 10) both map to the accent colour.
+- No unmount guard code in `useSeatHold`: React 19 silently drops state updates on unmounted components, so a guard is unobservable. `ignores a hold result after unmount` is therefore a smoke test (no throw), not a mutation-killing test.
+- The ✕ and ✓ are plain text glyphs, not Ionicons, so tests can assert the cues by text; the pending spinner is asserted through `aria-busy` only (a visual-only cue).
+- The seat card sits in a pinned footer outside the `ScrollView`, so `Continue` stays reachable on small screens; it does not move the grid (the tap table holds with or without it).
+- Test count per file differs a little from the checklist (extra cases: column A window label, column D aisle label, middle seat through the screen, `Continue` does nothing, title and helper, grid labels).
+
+**Tests and the mutation each kills (25 mutations run for real, each restored; the 24-mutation script is `/private/tmp/claude-501/-Users-ductran-Desktop-personal-side-project-train-ticket--claude-worktrees-adhd-page-plan-48a089/3fbe5090-ee51-4d55-9487-a22e9e1ba5f3/scratchpad/mutate.py`; all 25 killed)**
+- `useSeatHold`: drop the stale check (race test); drop the stale check in the rejection handler only (the new `a stale rejection is ignored` test); reject clears the selection (2 tests: the hook and the picker); a new request keeps the old error; grant does not clear pending (3); wrong error text (5).
+- `useSeatLayout`: no `useMemo` (identity test).
+- `fake`: forced-reject seat allowed (7 tests); held seats holdable; hold resolves immediately (the 599/600 ms test); 5-B booked (4).
+- `seatVisual`: held treated as free (3); selected beats pending (the `pending wins over selected` test).
+- `SeatGrid2D`: taken seats stay enabled (2); no `aria-selected` (3); no `aria-busy` (3); no ✕ cue; no ✓ cue; press not wired (9).
+- `SeatCard`: B labelled Aisle (2); `Continue` not wired.
+- Picker: card shown for the pending seat (2); no error alert (3); Back always `router.back()` (1, the deep-link fallback test).
+- Detail: the chip pushes the wrong route (1).
+- Not mutated: the `SeatMap` pass-through beyond the integration tests, and the route being outside `(tabs)` (`has no tab bar` covers it by behaviour).
+
+**Tester must run on the simulator (JS-only change; no native rebuild; Metro with `-c`, `npx expo start -c --port 8082`)**
+- How to open: `xcrun simctl openurl booted trainapp://journeys/nozomi-32`, then tap the seat chip `7-E` on the journey card (the chip is at about (343, 409) pt: x 313-372, y 396-423 from the M1 measurements). Direct deep link to the picker: `trainapp://booking/trip-nozomi-32/seats` (Back then goes to `/journeys` through the `replace` fallback).
+- **Tap table (computed from the tokens, not measured; verify once with a screenshot that the column letters A to E sit at these x values, 24 pt above row 1, and record any correction):** x for columns A 95, B 151, C 207, D 283, E 339. y for rows 1 to 8: 186, 242, 298, 354, 410, 466, 522, 578. Grid 324 wide starting at x 39; header 62 + 8 + 44; body padding 16; letters row 24; gap 8; seat 48; row pitch 56. Examples: `7-E` (339, 522), `3-C` (207, 298), `5-B` (151, 410), `1-A` (95, 186), `7-B` (151, 522).
+- Script (step 9 and step 11 in the checklist): picker has no tab bar and the title `Choose your seat · Car 7` with a back chevron; grey ✕ seats at 1-A, 1-B, 2-C, 3-D, 3-E, 4-A, 6-C, 8-B, 2-A, all others white with a visible border; tap 7-E: spinner, then ✓, card `Seat 7-E` / `Window seat`; tap 3-C: card `Seat 3-C` / `Aisle seat`, 7-E white again; tap 5-B: spinner then white, the red-orange line `Seat 5-B is no longer available. Pick another seat.`, 3-C keeps ✓ and its card; tap 1-A: nothing; tap 7-B: card `Seat 7-B` / `Middle seat`; `Continue` does nothing; Back returns to the detail page with the tab bar; the Tickets tab, then Journeys.
+- **CPU idle on the picker (and on the detail page)**: `top -pid <pid> -l 3` for 10 s without interaction, expect about 0%. Also report: Metro log (0 `ERROR`, 0 `ADVICE`, no yellow warnings), no red screen, icons and frames unchanged on the detail page (regression), accessible names are NOT checkable on device (no `mobilecli`), jest covers them.
+
+**Risks**
+- The tap table is computed, not measured; if the real layout differs (for example a taller title), the y values shift.
+- `✕`/`✓` rely on the system font having those glyphs (iOS does; Android not checked).
+- `colors.seatBorder` / `seatTakenGlyph` contrast numbers are the reviewer's calculation, not re-measured; free seats on the page colour are the visual risk to eyeball.
+- The 40-seat list is searched with `find` per cell on every render (8 × 5 × 40 comparisons); trivial now, revisit if the layout grows.
+- Nothing is committed since `cd2fac1`; M2a is one uncommitted change set in the working tree.
+
+### M2a Round 1 — tester
+
+**Verdict (one line): the 2D seat picker works on the simulator, with no failure found. The grid, the non-colour cues, the hold flow, the rejected seat, the seat card, Back, a clean re-entry, rotate, dark, and CPU all behave as specified, the computed tap table was exact (zero drift), and the log is empty. M2a's device gate passes.** One observation, not a failure: an unknown trip id still shows the full car-7 grid.
+
+**Environment**
+- Same simulator (iPhone 17 Pro, iOS 26.5, UDID `356A82C8-3C23-49D5-85EB-609E557A866D`, 402×874 pt, screenshots 3x), same installed app, no native change. Branch tip `cd2fac1`; the M2a changes are the uncommitted working tree. Metro: `npx expo start -c --port 8082` (cleared cache, first bundle 6.2 s, 1747 modules); stopped at the end (pid 86837). 8081 (other worktree) untouched. Simulator restored: light, portrait; Reduce Motion never touched. The hero is still the static image (`HERO_3D_ENABLED = false`, line 6 of `config.ts`).
+- I edited nothing but this file; `git status` outside `docs/` shows only the M2a files that were already there. Roles and labels (`Seat 5-B`, `aria-*`) are NOT TESTABLE on device (`mobilecli` missing); jest covers them.
+- Method: seat states, colours and positions were read by pixel scan of 3x screenshots (cell fills: free white with a `seatBorder` ring, taken `(184,190,198)`, selected accent `(46,102,149)`, pending a white cell with an accent ring and a spinner). Quick states (pending) were caught with burst screenshots (about 0.15 s apart) started together with the tap. CPU: `top -pid`, 3 s samples, first (bogus) sample dropped, 4 samples shown. Taps were issued as tool calls, so "rapid" taps are as fast as the tool allows (see 6.1 below).
+
+**Tap table check (computed, not measured, now measured).** From `m2a-picker-open.png` (seat edges by pixel scan): columns A 71–119, B 127–175, C 183–231, D 259–307, E 315–363 pt, so the centres are **A 95, B 151, C 207, D 283, E 339**; rows 1 to 8 span y 162–210, 218–266, 274–322, 330–378, 386–434, 442–490, 498–546, 554–602, so the centres are **186, 242, 298, 354, 410, 466, 522, 578**. Seat 48 pt, gap 8, aisle 28 pt (C ends 231, D starts 259). **Drift: none.** The letters row sits above row 1 (centres about 44 pt above the first row's centre, in a 24 pt letters row), and the seat chip on the card (343, 409) opens the picker as listed.
+
+**What the picker shows, seat by seat.** Taken seats (grey with a ✕), read from the screenshot: exactly `1-A 1-B 2-A 2-C 3-D 3-E 4-A 6-C 8-B` (booked plus held `2-A`); every other seat is a white cell with a `(124,135,148)` ring (`#7C8794`) against the page `(239,243,246)`. Booked and held look the same (both ✕). Helper line `Tap a free seat to hold it.` under the grid.
+
+**Items (PASS = observed on the simulator; NT = NOT TESTABLE)**
+
+| # | Item | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | Seat chip on the journey card opens the picker | PASS | `m2a-detail.png` then `m2a-picker-open.png` |
+| 2 | Picker has no tab bar | PASS | bottom area y 700 to 870 pt has 0 non-page pixels (`m2a-picker-open.png`) |
+| 3 | Header: back chevron and `Choose your seat · Car 7` | PASS | `m2a-picker-open.png` |
+| 4 | Grid: rows 1 to 8, columns A B C, aisle, D E, letters on top, row numbers at the side | PASS | `m2a-picker-open.png`; aisle 28 pt |
+| 5 | Tap table x/y values hold | PASS | measured, zero drift (see above) |
+| 6 | States distinguishable without colour: ✕ taken, ✓ selected, spinner pending, free = white with ring | PASS | `m2a-picker-open.png` (✕ on 9 seats), `m2a-7E-selected.png` (✓), `m2a-7E-pending.png` and `m2a-5B-pending.png` (spinner) |
+| 7 | Free seats visible against the page (`seatBorder`) | PASS | ring `(124,135,148)` on page `(239,243,246)`; seats read as outlined squares, not holes |
+| 8 | Taken seats are exactly the nine expected | PASS | pixel classifier over all 40 cells, `m2a-picker-open.png` |
+| 9 | Tapping a booked seat (1-A) and a held seat (2-A) does nothing | PASS | `m2a-taken-taps.png` is pixel-identical to the frame before (below the status bar), selection and message untouched |
+| 10 | Free seat: pending, then selected after about 0.6 s; seat card appears | PASS | Tapped `7-E`: burst frame 0 (0.3 s) shows the pending cell (accent ring and spinner, no footer card), frame 1 (0.45 s) shows ✓ on accent and the card `Seat 7-E` / `Window seat` with `Continue`; held for all later frames (`m2a-7E-pending.png`, `m2a-7E-selected.png`). The 0.45 s is measured from the burst start, which began after the tap, so it is consistent with about 0.6 s; the exact delay was not measured |
+| 11 | Card label by column | PASS | A `Window seat` (5-A, `m2a-5A-selected.png`), B `Middle seat` (7-B, `m2a-7B-selected.png`), C `Aisle seat` (3-C, `m2a-3C-selected.png`), D `Aisle seat` (5-D, `m2a-5D-selected.png`), E `Window seat` (7-E) |
+| 12 | `Continue` does nothing | PASS | `m2a-continue-tap.png` pixel-identical to the frame before the tap |
+| 13 | Another free seat replaces the selection | PASS | 7-E then 3-C: only `3-C` selected, 7-E white again (`m2a-3C-selected.png`) |
+| 14 | `5-B`: spinner, then white, inline message, previous selection kept | PASS | Burst: frame 0 `5-B` pending, frame 1 (0.46 s) `5-B` free; message `Seat 5-B is no longer available. Pick another seat.` in orange under the grid; `3-C` keeps its ✓ and card (`m2a-5B-pending.png`, `m2a-5B-rejected.png`) |
+| 15 | A new request clears the message | PASS | After tapping `7-B` the message is gone (0 message pixels, `m2a-7B-selected.png`) |
+| 16 | Rapid taps end in the last tap's state | PASS | Taps on 2-D, 5-E, 8-D as back-to-back tool calls with a burst recording: frame 0 already shows `7-A` still selected with `8-D` pending (so the two earlier results were not applied), frame 2 (0.64 s) `8-D` selected, nothing pending afterwards. Another run (5-A, 5-C, 7-A) ended with only `7-A` selected and nothing pending at 0.2, 1.5 and 3 s. The gaps between the tool-call taps were not measured, so the overlap with the 600 ms hold is shown by the stale results being dropped, not by timing |
+| 17 | Back returns to the journey screen with the tab bar | PASS | `m2a-back-to-detail.png`: detail, tab bar, static hero (stripe 22,092 px inside the hero rect, 0 outside) |
+| 18 | Re-entering the picker starts clean | PASS | `m2a-reenter.png`: no selection, no footer card, no message; pixel-identical to the first-open picker (selection is not kept) |
+| 19 | Spacing and the pinned footer card do not cover the last row | PASS | Row 8 ends at y 602; helper text about y 620 to 624; footer card y 684.7 to 824, x 12 to 390 (12 margin), `Continue` 758 to 806 (48 high); the card never reaches the grid (`m2a-ref-7E.png`) |
+| 20 | Rotate | PASS | `m2a-rotate.png`: stays portrait, pixel-identical to upright |
+| 21 | Dark mode | PASS | `m2a-dark.png`: pixel-identical to light (the app has no dark theme); reset to light |
+| 22 | Unknown trip id (`trainapp://booking/nope/seats`) | PASS | No crash; the picker shows the same car-7 grid with the same taken seats (no "not found" state), `m2a-unknown-trip.png`. See Observations |
+| 23 | Cold deep link to the picker, then Back | PASS | `m2a-cold-picker.png` pixel-identical to the first picker; Back lands on the journeys list with the tab bar (`m2a-cold-picker-back.png`), the `replace('/journeys')` fallback |
+| 24 | CPU, picker idle | PASS | 0.1 0.1 0.1 0.1 % |
+| 25 | CPU, picker with a seat selected (8-D) | PASS | 0.1 0.0 0.1 0.1 % |
+| 26 | CPU, detail after Back from the picker | PASS | 0.1 0.1 0.1 0.1 % |
+| 27 | CPU after three open, select, Back cycles | PASS | 0.0 0.2 0.1 0.1 % |
+| 28 | CPU, cold deep-linked picker idle, and detail at the end of the run | PASS | 0.1 0.1 0.0 0.0 % and 0.1 0.1 0.1 0.1 % |
+| 29 | Metro log: no `ERROR`, `WARN`, `ADVICE`, `THREE`, `EXGL`; no red or yellow box | PASS | counts 0 / 0 / 0 / 0 over the whole run; the log holds only the two `iOS Bundled` lines; no LogBox in any `m2a-*` screenshot |
+| 30 | M1 regression: tab bar pill | PASS | left 21.0, right 381.0, y 790 to 852 (62 high, 22 gap), solid white (`m2a-cold-picker-back.png`) |
+| 31 | M1 regression: `[id]` is not a tab; four tabs on the detail | PASS | `m2a-back-to-detail.png` |
+| 32 | M1 regression: back chevron (detail to list, picker to detail) and the picker back | PASS | `m2a-back-to-detail.png`, `m2a-cold-picker-back.png` |
+| 33 | M1 regression: segments | PASS | `Live` selects and hides the card, `Overview` restores it (`m2a-seg-live.png`, `m2a-seg-overview.png`) |
+| 34 | M1 regression: icons render | PASS | tab, header, card, details icons draw (`m2a-back-to-detail.png`) |
+| 35 | M1 regression: drag from the hero scrolls the page by 33 pt | PASS | ground band end 366 to 333, card top 378 to 345 (`m2a-drag-scrolled.png`) |
+| 36 | M1 regression: static hero fills and clips | PASS | stripe 22,092 px inside the hero rect, 0 outside; ground band 323.3 to 366.0 (`m2a-detail.png`, `m2a-back-to-detail.png`) |
+| 37 | M1 regression: frames within ±3 pt | PASS | header buttons from y 70; track 138 to 180; card x 12 to 390; Show ticket 48; map 324.0 to 372.0, gap 10.3; chip 396 to 423 (27) (`m2a-detail.png`) |
+| 38 | Accessible names (`Seat 5-B`, `aria-busy`, `aria-selected`, `aria-disabled`, `alert`) | NT | `mobilecli` missing; jest covers them |
+
+**Counts (counted by script from the items table, 38 rows):** PASS 37, FAIL 0, NOT TESTABLE 1 (row 38).
+
+**Failures:** none.
+
+**Observations (not failures)**
+1. **Unknown trip id shows the full seat map** (`getSeatLayout` ignores the trip id, so any id gets car 7). If a "Trip not found" state is wanted, it needs a spec line; the plan has none for the picker. Severity: minor, information.
+2. **Booked and held seats look identical** (both grey with a ✕). That matches the spec ("taken"), but a user cannot tell a seat held by someone else from a sold seat. Information.
+3. **Selection is not kept** when the picker is closed and reopened (clean state every time). Matches the "starts clean" expectation; recorded because the user may later want the hold to survive (it does not today, and no hold timer is shown).
+4. The 600 ms hold was seen as pending at 0.3 s and resolved by 0.45 s of the burst clock; the exact delay was not timed, and the tool-call taps cannot test true simultaneity (see row 16).
+
+**Next action for the coder:** nothing blocks M2a. Hand it to the reviewer; decide on observation 1 (unknown trip id) and, if wanted, add a "Trip not found" line to step 9.
+
+### M2a Round 1 — reviewer
+
+**Verdict for M2a: PASS.** Counts: 0 blocker, 0 major, 5 minor, 7 nit. The seat picker is correct, well layered and well tested: the hold race, the rejection rule, the accessibility contract and the layering all hold, and the tester's report checks out against the code and the screenshots. What is left is small (Part 1 minors) and none of it gates M2a. Step 10 stays parked, as decided.
+
+Marking: **CONFIRMED** = I verified it in code, a command, a grep, a script run on the screenshots, or a real mutation in the throwaway copy. **PLAUSIBLE** = reasoned, not verified. I did not touch the simulator, start Metro, or run `expo export`. The device facts below are the tester's, cross-checked by me on their screenshots, not re-run.
+
+---
+
+#### Part 1 — Code review
+
+**What I ran.** `pnpm check` green: lint 0, `tsc` 0, jest 28 suites / 117 tests, prettier OK. HEAD `cd2fac1`; `package.json`, `pnpm-lock.yaml`, `app.json`, `docs/architecture.md` unchanged (`git diff HEAD --stat` prints nothing). S1 empty, S2 empty, S3 only `models/PlaceholderTrain.tsx` and `scene/HeroScene.tsx` (type import), S4 `Nozomi 32` only in `journeys/api/fake.ts` and the seat data (`FORCED_REJECT_SEAT`, `BOOKED`, `HELD`) only in `booking/api/fake.ts` (`seatVisual.ts` and `types.ts` only name the status type), S7 empty, S8 no new dependency, no `ios/`. The pure-file grep (`three|react-native|react`) over `seatVisual.ts`, `types.ts`, `booking/api`, `booking/types.ts` prints nothing. No `console`, `TODO`, `FIXME` in `src` (the one `eslint-disable` is the guarded `require` in `TrainHero.tsx:16`). CONFIRMED.
+
+**Layering and contract (all CONFIRMED by reading).**
+- `app → features → shared` one way. `src/app/booking/[tripId]/seats.tsx` is a one-line re-export from `@/features/booking`; `booking` imports `seat-map-3d` only through its barrel (`SeatMap`, the types); `seat-map-3d` never imports `booking`; the barrel (`index.ts`) exports `SeatMap`, `TrainHero` and types, and `barrel.test.ts` still proves it loads no `three`.
+- `seat-map-3d` is controlled and API-agnostic: `SeatMapProps = { layout, status, selectedSeat, pendingSeat, onSeatPress }` (`types.ts:19-25`), and `SeatGrid2D` reads nothing else. `booking` owns the hold (`useSeatHold`) and passes state down.
+- **Hold race (`useSeatHold.ts:13-31`).** A request counter; both handlers drop a result whose request is not the latest; a grant sets `selectedSeat` and clears `pending`; a rejection clears `pending`, keeps the previous selection and sets the message; a new request clears the error. Traced by hand for 3-A then 3-B, and for a stale rejection: correct. The tests cover each case (`useSeatHold.test.tsx:70-109`), and I re-ran three mutations of it (below). React 19 ignores state updates on an unmounted component, so no guard is needed (the coder's note is right; the unmount test is a smoke test, labelled as such).
+- `useSeatLayout` is memoised (`useSeatLayout.ts:9`), with an identity test; dropping the `useMemo` fails it.
+- **Accessibility contract.** Each seat is `role="button"`, `aria-label="Seat 5-B"`, `aria-busy` (pending), `aria-selected` (selected), `aria-disabled` + `disabled` (taken) (`SeatGrid2D.tsx:32-41`); cues beyond colour (✕, ✓, spinner, border); the error is `role="alert"`; header `role="heading"`; `Back` and `Continue` are buttons with names. Roles, names and states are covered by jest only (device names are NOT TESTABLE: `mobilecli` missing).
+- **Over-engineering check (the user prefers the simplest thing).** Not speculative: `seatVisual` with four outputs (`pending`/`selected` are needed for the non-colour cues; 15 lines), the pinned footer (6 lines; with `Continue` a no-op it is slightly ahead of need, but the screen is otherwise taller than an iPhone SE once a card appears, and checkout will need a reachable primary action), and the tokens (below). Mildly ahead of need: 3D-only data in the fake (`pos`, `COLUMN_X`, `SEAT_Y`, `ROW_PITCH`, `fake.ts:14-24, 36`) and `expiresAt`/`HOLD_TTL_MS` that no UI reads yet; both keep the `SeatLayout` contract of `architecture.md` and cost a few lines. Keep. The `SeatMap` one-line pass-through is the stable import surface for step 10 and is labelled so.
+
+**Mutations (run for real in the throwaway copy `<scratchpad>/mut/`, never the working tree; restored after each).** 5 of the coder's (plus one more) and 6 of my own:
+
+| # | Mutation | Result |
+| --- | --- | --- |
+| T1 coder | drop the stale check in the success handler | killed (1 fails: the race test) |
+| T2 coder | a rejection clears the selection | killed (2 fail) |
+| T3 coder | the forced-reject seat treated as free in `holdSeat` | killed (7 fail) |
+| T4 coder | `seatVisual` treats held as free | killed (3 fail) |
+| T5 coder | taken seats not `disabled` | killed (1 fails) |
+| T6 coder | `useSeatLayout` not memoised | killed (1 fails) |
+| R-M2 mine | `window` flag only for column A | killed (2 fail) |
+| R-M4 mine | `SeatMap` drops `pendingSeat` | killed (2 fail) |
+| R-M6 mine | error text names the wrong seat | killed (5 fail) |
+| **R-M1 mine** | **route param ignored** (picker uses a constant trip id) | **survives**, 117 pass |
+| **R-M5 mine** | **car ignored by the hold** (hard-coded 8) | **survives**, 117 pass |
+| **R-M3 mine** | aisle spacer width 0 (layout only) | **survives**, 117 pass |
+
+The three survivors are explainable: R-M1 and R-M5 survive because `getSeatLayout` and `holdSeat` ignore `tripId` and `car`, so nothing observable depends on them (see m2); R-M3 is layout, which jest cannot see and the tester measured on the device (aisle 28 pt). The coder's claim that all 25 of its own mutations were killed holds for the 6 I re-ran.
+
+**Findings**
+
+**Minor**
+- **m1. A rejected seat is silent for VoiceOver.** `SeatPickerScreen.tsx:47-51`. RN maps `role="alert"` on iOS to `UIAccessibilityTraitNone` (`react-native/React/Views/RCTViewManager.m:31`) and `RCTViewComponentView.mm` has no live-region handling, so the alert adds no automatic announcement on iOS (the mapping is CONFIRMED; that nothing else announces it is PLAUSIBLE, not tested with VoiceOver). The 2D grid is the screen-reader path, and when a hold is refused the seat just reverts. Fix: `AccessibilityInfo.announceForAccessibility(error)` when `error` becomes non-null (a 4-line `useEffect` in the screen), and a jest test that spies it. Keep `role="alert"` for jest and Android.
+- **m2. The route param and the car never reach an observable effect, so their plumbing is untested** (R-M1, R-M5). `SeatPickerScreen.tsx:16-23`, `useSeatHold.ts:18`. Fix (two small tests, no production change): in `useSeatHold.test.tsx` mock the fake (`jest.mock('../api/fake', …)` or `jest.spyOn`) and assert `holdSeat` is called with `('trip-test', 7, '7-E')`; in `seat-picker.test.tsx` open `/booking/trip-xyz/seats` and assert `getSeatLayout` received `'trip-xyz'` (or defer until the API uses the id, see the trip-not-found ruling).
+- **m3. Plan text is stale against the amended checklist.** `journey-detail-plan.md:176` (step 8) still says "`types.ts`, `peelMachine`, `layoutToInstances`, … the peel reducer, instance → seat code mapping" although step 8 now builds only `types`, `seatVisual`, `booking/types`, the fake and their tests; the plan's Files tree lacks `seatVisual.ts`, `booking/types.ts`, `hooks/useSeatLayout.ts`, `components/SeatCard.tsx`, `ErrorBoundary.tsx`, `useReduceMotion.ts`; the header still says "Proposed — not agreed". CONFIRMED by grep. **Plan edits need the user's approval (docs rule).**
+- **m4. Every rejection reads as "no longer available", and `SeatUnavailableError` is never inspected.** `useSeatHold.ts:24`, `types.ts:3-11`. Harmless with the fake; with a real API a network failure would show the wrong message, and the error class is dead weight until then. Either check `instanceof SeatUnavailableError` now (3 lines + a test) with a generic "Could not hold the seat" otherwise, or leave it and write the rule into the checkout/API step. I recommend leaving it until the API exists (YAGNI) and recording it.
+- **m5. The checklist is now a 300 KB working log.** `docs/journey-detail-checklist.md` is 308 KB (about 2,150 lines): three rounds of tester tables and reviewer essays above the actual checklist. Every future agent that reads it pays for that. Recommendation (needs the user's approval, docs rule): move the "Round log" (everything under `## Round log`) to `docs/journey-detail-log.md` and keep the checklist and standing checks short. CONFIRMED size.
+
+**Nit**
+- **n1.** Token overlap: `typography.gridLabel` equals `tabLabel` (both `{ fontSize: 12, fontWeight: '500' }`); `colors.onAccent` equals `colors.onButtonDark` (`#FFFFFF`); `borderWidth: 2` is a literal (`SeatGrid2D.tsx:129`). The new seat tokens otherwise earn their keep: `seatBorder` (3.27:1 against the page, calculated), `seatTakenGlyph` (4.07:1 on `seatTaken`), `seatCell`/`seatGap`/`aisleGap` (they make the tap table computable and it was exact on the device).
+- **n2.** The column letters and row numbers are separate VoiceOver stops (13 extra swipes) in the screen-reader path; `aria-hidden` on the labels would shorten it (PLAUSIBLE; the buttons carry the full name).
+- **n3.** `useSeatHold.test.tsx:48` ("a rejected seat … keeps the selection") starts with no selection, so it does not test keeping; `:98` does. Rename or add a selection.
+- **n4.** Parked/unused data: `pos`, `COLUMN_X`, `SEAT_Y`, `ROW_PITCH`, `expiresAt`, `HOLD_TTL_MS` (see above). Keep, labelled.
+- **n5.** `JourneyDetailScreen.tsx:69`: `router.push(`/booking/${journey.tripId}/seats`)` does not `encodeURIComponent` the id (fine for `trip-nozomi-32`, wrong for arbitrary ids); the detail screen's ScrollView hides its scroll indicator while the picker's does not.
+- **n6.** `goBack` (`canGoBack() ? back() : replace('/journeys')`) now exists twice (`JourneyDetailScreen.tsx`, `SeatPickerScreen.tsx:27-28`); checkout will be the third copy: extract a `useGoBack` into `shared/` then, not before.
+- **n7.** `.claude/worktrees/` is excluded only locally, by `.git/info/exclude:7`, not in the repo's `.gitignore` (CONFIRMED with `git check-ignore -v`; resolves my earlier "unverified"). Irrelevant for this clone, a nit for others.
+
+---
+
+#### Part 2 — The tester's report
+
+**Spot-checks (I redid three against the code and the screenshots; all agree).**
+1. *"Taken seats are exactly the nine expected."* I classified the cell fill at the tap-table coordinates of `m2a-picker-open.png`: taken = 1-A, 1-B, 2-A, 2-C, 3-D, 3-E, 4-A, 6-C, 8-B (the 8 booked plus held 2-A). CONFIRMED. The same scan shows the cell grid sits where the computed tap table says.
+2. *"Picker has no tab bar; footer card 684.7 to 824 pt and never reaches the grid."* 0 non-page pixels in y 700-870 of `m2a-picker-open.png`; the white card in `m2a-5B-rejected.png` spans y 684.7-823.7 pt; row 8 ends at 602. CONFIRMED. The same screenshot shows the rejection message under the grid, `3-C` still ticked with its card.
+3. *"An unknown trip id shows the full car-7 grid."* `m2a-unknown-trip.png` shows the same grid and taken seats; the code agrees (`getSeatLayout` ignores the id, `fake.ts:26-47`). CONFIRMED.
+Also consistent with the code and the screenshots: the helper line, the orange message (`colors.warning` is 4.5:1 on the page, calculated), ✕/✓ cues, the header, the burst-timed pending states.
+
+**Rulings on the observations**
+1. **Unknown trip id shows the full grid: an acceptable fake-data limit. Recommendation: do not add a "Trip not found" state now.** Reasons: (a) the fake would need a trip catalogue, and the only place that knows trips is `journeys` (`tripId: 'trip-nozomi-32'` lives in `journeys/api/fake.ts`; `booking` cannot import it, and a second hard-coded literal in `booking/api/fake.ts` duplicates data and trips S4); (b) the only in-app way to reach the picker is the seat chip, which always passes a valid id, so the state is reachable only by a typed deep link; (c) when the real API arrives, loading, error and not-found states arrive together with it (`useSeatLayout` becomes async, `qk.seats`), and that is the right place to build and test the state once. One sentence in the plan should say so ("the picker has no not-found state; the fake ignores the trip id", docs rule: needs approval).
+2. **Booked and held look the same: by design.** `architecture.md` defines grey as "booked or held by someone else (not selectable)". If a legend or a different look for held is wanted, that is a design change for the realtime phase, not a defect.
+3. **Selection is not kept on re-entry: fine for M2a.** Related gaps worth a decision at checkout: there is no way to clear a selection (only to pick another seat), and leaving the picker does not release the hold (the fake has no hold store).
+4. **The 600 ms hold was seen pending at 0.3 s and resolved by 0.45 s, not timed exactly:** fine; `fake.test.ts` pins the delay (599 ms pending, 600 ms resolved) under fake timers.
+
+**What was not testable, and whether it needs a device**
+- **Accessible names and states on device** (`Seat 5-B`, `aria-*`, `alert`): blocked by missing tooling (`mobilecli`), **not by the lack of a device**; jest covers them. Real VoiceOver behaviour (including m1's missing announcement) needs VoiceOver, which the simulator can run (Accessibility settings), or a device. Not verified.
+- Never run: Android (the ✕/✓ glyphs and spinner), a small screen (iPhone SE: the pinned footer plus a 667 pt height is the interesting case; a smaller simulator *device* of the same runtime might exist, not checked), large Dynamic Type, the edge-swipe back from the picker, a real network. A physical device matters for Android, performance and gate 1; the others do not need one.
+- Rapid-tap timing: the tool-call taps cannot test true simultaneity; the stale-result handling is proven by the jest race tests instead.
+
+---
+
+#### Part 3 — Overview of the app after the first feature slice
+
+- **Structure vs docs.** `src/{app,features/{journeys,booking,seat-map-3d},shared}` matches `codebase-structure.md`; the lint zones fire (proven in Round 1); S1-S8 pass. `docs/architecture.md` is untouched, as required. CONFIRMED.
+- **Docs after M2a.** `codebase-structure.md` is accurate (nothing M2a-specific is stale; its dev-only-route spike note is now the plan for the next 3D attempt). The plan has m3's staleness; the Q-numbers are consistent (plan Q1, Q2 (chip), Q4, Q5, Q6, Q7, Q8 implemented by their defaults; Q3 and `codebase-structure.md` Q1, Q3, Q5 still open, see the list below); "Done when" is correct for M2a/M2b. The checklist is accurate for steps 8, 9, 11; its size is m5. Conflicting statements: none found.
+- **Dependencies vs need (CONFIRMED by grep).** `three`, `@react-three/fiber` and `@types/three` are still imported (`HeroScene.tsx:1,4`, `PlaceholderTrain.tsx:2`), so removing them breaks `tsc` and the `HeroScene` jest tests. `expo-gl`, `expo-asset` and `expo-file-system` are **not imported by app code** (only a comment names `expo-gl`); they are R3F-native peers loaded at runtime, so removing them would not fail typecheck or jest, only the flag-on scene and the native build (PLAUSIBLE; not tried). All of them are unevaluated while `HERO_3D_ENABLED = false`. Keep or remove together when the user decides; removing now loses tested code that was expensive to get working.
+- **Repo hygiene.** All M2a files are untracked or modified and belong in the repo; nothing else needs `.gitignore` (`ios/`, `.expo/`, `node_modules/` already are; worktrees by local exclude, n7). The static hero art is labelled a placeholder in `TrainHero.tsx`; the seat tokens are measured/calculated, not art. **M2a is one uncommitted change set on top of `cd2fac1`: commit it** (the user's call; I never commit).
+- **CPU and performance.** Static screens; the tester measured 0.0-0.2% on the picker, with a selection, after Back and after three cycles; no loops exist in the code that ships (3D flag off). The 40 `Pressable`s re-render together on each state change (trivial). 3D performance and gate 1 stay unmeasured (no device).
+- **Risks for what comes next**
+  - *Checkout.* `useSeatHold` drops stale results on the client, but with a real API a stale hold that was granted server-side stays held (the user holds two seats for 5 minutes): the API must replace atomically or the client must release; the hook discards `expiresAt` today (checkout needs it, from the server clock, per `architecture.md`); there is no deselect; `goBack` copy number three (n6); the `Continue` no-op must become navigation to `/booking/[tripId]/checkout`.
+  - *Realtime.* `SeatLayout.version` is unused. In `seatVisual` a selected seat wins over taken, so if realtime marks your own selected seat held by someone else the UI keeps showing it as yours; handle that when events arrive. The `status` record is already shaped for `setQueryData` patches.
+  - *Search flow.* `tripId` is plumbing only today (m2); `CAR = 7` is a constant in the screen; `useSeatLayout` is sync and will gain loading/error/not-found with the API (the trip-not-found ruling). TanStack Query (plan Q6) arrives with the first async API, which is also the moment to answer the not-found question.
+  - *Android.* ✕/✓ glyph fonts and the spinner are unchecked; fixed 48 pt cells.
+
+---
+
+#### Verdict and criteria
+
+**M2a: PASS.** Criteria: (1) S1-S8 pass and the layering and controlled-component contract hold (CONFIRMED); (2) `pnpm check` green, 28 suites / 117 tests, no new dependency, `architecture.md` untouched (CONFIRMED); (3) the hold rules (latest wins, stale dropped, rejection keeps the previous seat, error cleared by a new request) are correct by reading and by 6 killed mutations of them; the new tests have teeth (9 of 12 mutations killed; the 3 survivors are unobservable plumbing or layout); (4) accessibility contract implemented and covered by jest (device names NOT TESTABLE, no `mobilecli`); (5) the tester's device gate: 37 PASS, 0 FAIL, 1 NOT TESTABLE, CPU 0.0-0.2%, clean log, tap table exact, and my cross-check of three claims on the screenshots agrees. The minors (m1 announcement, m2 two tests, m3 plan text, m4, m5) do not gate; do m1 and m2 in the next feature's first pass.
+
+---
+
+#### What is left, ranked (for the user)
+
+**1. Housekeeping (small, do first).**
+- Commit M2a (the user's call). Approve or reject the docs edits that need approval under the docs rule: plan step 8 text and Files tree (m3), the one-line "no trip-not-found state" note, moving the round log out of the checklist (m5).
+- m1 (announce the rejection) and m2 (two plumbing tests) in the next change set.
+- Decide keep or remove the unused 3D dependencies (they are only imported by the parked scene; removal is `three`, `@react-three/fiber`, `@types/three` plus `HeroScene`, `PlaceholderTrain`, their tests, `metro.config.js`, the mocks, and optionally `expo-gl`, `expo-asset`, `expo-file-system`).
+
+**2. Parked 3D (steps 6 sway and 10; what must happen to unpark).** Nothing here needs more code today; it needs one of: a physical device (an iPhone via `npx expo run:ios --device` with free provisioning, or an Android phone with the SDK or EAS Build, `codebase-structure.md` Q1), or the next no-device attempt from my Round 3 plan. Order: (a) the isolated dev-only route, runs N0-N7 (reproduce the failing config, `frameloop="demand"`, raw `GLView` beside the canvas, explicit `setClearColor`, a `getError` sync, minimise, throttled loop, CPU gate), stop rules as written; (b) then flip `HERO_3D_ENABLED` and re-run 6.1, 6.2, 6.5, 6.6, 6.S, 3.12 and the CPU gate; (c) then step 10 in its own order (spike 10a tap → `instanceId`, `Seats`, the placeholder parts and peel with `peelMachine`, `SeatMap` toggle + boundary + guarded loader, `camera.up`, the failure-mode tests and the `SeatScene` mock); (d) gate 1 (60 fps on a mid-range Android phone) needs the Android route anyway.
+
+**3. Open questions still unanswered, with their defaults.**
+- `codebase-structure.md` Q1 / plan Q3: which mid-range Android phone, and local SDK or EAS Build? **Blocks gate 1.** No default.
+- `codebase-structure.md` Q3: does a backend or OpenAPI spec exist? **Blocks phase 1.** Default: skip orval, typed fakes in `shared/api`.
+- `codebase-structure.md` Q5: deep link `trainapp://trip/{id}` has no route. Default: link to `trainapp://journeys/{id}`.
+- `codebase-structure.md` Q2: who makes the real `.glb`? Open (placeholders decided).
+- Plan Q7 (Show ticket destination: default no-op) and Q6 (TanStack Query: default wait, until the first async API) are implemented by their defaults and can stay.
+
+**4. Recommended next feature.** In this order, each small and without new dependencies until the API question is answered: (1) **the Journeys list screen**, replacing the one-link stub, because it is the app's front door and the detail page is only reachable through a stub link today (data from the existing fake); (2) **checkout with a hold countdown** (`/booking/[tripId]/checkout`): wire `Continue`, expose `expiresAt` from `useSeatHold`, count down from it, release or replace the hold on leave (this also forces the stale-hold and deselect decisions above); (3) the search flow (`/booking/search`) feeding trips into the picker, together with the real-API decision (Q3, TanStack Query, the trip-not-found state).

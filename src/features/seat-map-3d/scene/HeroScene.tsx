@@ -42,9 +42,11 @@ function Sway() {
   );
 }
 
-// The canvas is opaque on purpose: a transparent GL canvas (scenery image behind it)
-// drew nothing on the iOS 26.5 simulator, while an opaque clear drew the train
-// (see the Round 2 and Round 3 logs in docs/journey-detail-checklist.md).
+// Unverified: neither a transparent canvas nor this opaque `scene.background` drew
+// anything on the iOS 26.5 simulator; only the Round 3 diagnostic build ever drew (it
+// also had a raw GLView, an explicit setClearColor and a gl.getError() sync). The next
+// attempt re-adds those pieces one at a time; see the Round 3 logs in
+// docs/journey-detail-checklist.md.
 // Not capped with `dpr`: R3F native fixes it at the screen scale, because expo-gl
 // can only render at native resolution.
 export default function HeroScene({ active, reduceMotion }: HeroSceneProps) {

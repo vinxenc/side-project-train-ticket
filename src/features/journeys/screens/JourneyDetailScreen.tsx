@@ -63,8 +63,12 @@ export function JourneyDetailScreen() {
             <View style={styles.content}>
               {segment === 'overview' && (
                 <>
-                  {/* seat chip is wired to the seat picker in step 9 */}
-                  <JourneyCard journey={journey} onSeatPress={() => {}} />
+                  <JourneyCard
+                    journey={journey}
+                    onSeatPress={() =>
+                      router.push(`/booking/${journey.tripId}/seats`)
+                    }
+                  />
                   <JourneyDetails journey={journey} />
                 </>
               )}

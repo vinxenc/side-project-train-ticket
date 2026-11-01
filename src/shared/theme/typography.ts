@@ -14,4 +14,6 @@ export const typography = {
   sectionHeading: { fontSize: 15, fontWeight: '600' },
   rowTitle: { fontSize: 16, fontWeight: '600' },
   tabLabel: { fontSize: 12, fontWeight: '500' },
+  gridLabel: { fontSize: 12, fontWeight: '500' },
+  seatGlyph: { fontSize: 22, fontWeight: '700' },
 } satisfies Record<string, TextStyle>;

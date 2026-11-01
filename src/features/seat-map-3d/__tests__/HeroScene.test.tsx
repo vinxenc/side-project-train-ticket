@@ -46,7 +46,7 @@ test('looks at the car side-on from a fixed camera', async () => {
   });
 });
 
-test('has an opaque sky background (a transparent canvas drew nothing on the simulator)', async () => {
+test('sets the sky background colour', async () => {
   await render(<HeroScene active reduceMotion={false} />);
   const children = Children.toArray(canvasProps()?.children);
   const background = children.find(
