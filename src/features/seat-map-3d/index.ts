@@ -1,0 +1,1 @@
+export { TrainHero } from './TrainHero';
