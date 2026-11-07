@@ -1,6 +1,6 @@
 ## Research delegation
 
-For research, file search and codebase investigation, use the `researcher` skill (Haiku 5.5, graphify first) instead of exploring yourself. Relay its result in /i-have-adhd shape (a user-invoked skill: don't try to load it). Do not pass a per-call `model` when spawning the `researcher` agent directly: it would override the Haiku 5.5 pin.
+This section is for the coordinating (main) agent. The `researcher` agent itself is exempt: it cannot delegate, and it uses WebSearch, WebFetch, Grep, Glob and Read directly as its own instructions say. The coordinating agent ALWAYS uses the `researcher` skill (Haiku 5.5, graphify first) for any research: web search, finding files, exploring the codebase, docs lookups, and does not run WebSearch, WebFetch, Grep, Glob or exploratory Read itself. The agent carries the /i-have-adhd output rules itself (cloned into `.claude/agents/researcher.md`). Whenever the researcher has run, ALWAYS apply the /i-have-adhd rules to your own reply that uses its result (the skill is user-invoked: don't try to load it, follow the rules from `.claude/agents/researcher.md`): answer or next action on the first line, numbered steps, max 5 items per list, evidence as `path:line` for repo findings or a URL for web findings, one under-2-minute next action last, no preamble, recap or closer. Never paste its output verbatim if it breaks these rules. Do not pass a per-call `model` when spawning the `researcher` agent directly: it would override the Haiku 5.5 pin.
 
 ## graphify
 

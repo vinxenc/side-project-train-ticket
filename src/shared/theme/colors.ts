@@ -1,0 +1,27 @@
+// The only place hex colours live. tailwind.config.ts reads this, so the
+// token names are also class names: `bg-card`, `text-textPrimary`, ...
+export const colors = {
+  background: '#EFF3F6',
+  card: '#FFFFFF',
+  segmentTrack: '#E4EDF2',
+  segmentActive: '#FFFFFF',
+  headerButton: '#E4E7EC',
+  chip: '#EFEFEF',
+  divider: '#ECECEF',
+  textPrimary: '#0A0A0C',
+  textSecondary: '#8E8E93',
+  textInactive: '#667078',
+  buttonDark: '#1C1C1E',
+  onButtonDark: '#FFFFFF',
+  success: '#2E7D4F',
+  warning: '#B45309',
+  accent: '#2E6695',
+  heroSky: '#EEF2F6',
+  tabBar: '#FFFFFF',
+  tabBarActive: 'rgba(0,0,0,0.06)',
+  seatFree: '#FFFFFF',
+  seatTaken: '#B8BEC6',
+  shadow: '#0F2A43',
+  trainBody: '#FFFFFF',
+  trainInterior: '#D5DCE4',
+} as const;
