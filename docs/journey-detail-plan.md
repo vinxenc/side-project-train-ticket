@@ -1,13 +1,24 @@
-# Journey detail page and 3D seat picker — implementation plan
+# Journey detail page and seat picker — plan for the restart
 
-> **Proposed — not agreed.** Plan for the page in the mockup (Shinkansen, "Nozomi 32", Tokyo → Kyoto), a **3D hero**, and the **shell-peel seat picker** it opens. Builds on [architecture.md](architecture.md) and [codebase-structure.md](codebase-structure.md). Steps 0–7 are built (the 3D hero is built but switched off, see Decided); steps 8, 9 and 11 are M2a, step 10 is parked.
+> **Status: code removed on purpose; the user will start again. This PR is docs-only.** The tree is the Day-0 scaffold (`src/app/_layout.tsx`, `src/app/index.tsx`, `src/__tests__/home.test.tsx`). This file is now **the plan for the restart**: the decisions and the build order below stay valid; the steps were all built once and removed, except the 3D ones, which were never finished.
+>
+> **What was built and verified before removal**
+> - **M1, steps 0–7** (commit `cd2fac1`, 2026-11-01): journey detail page, floating tab bar, theme tokens, static hero (a 3D hero sat behind a flag that was OFF; it never drew on the simulator). Simulator-tested over 3 rounds; PASS only under the user's waiver for the 3D hero.
+> - **M2a, steps 8, 9, 11** (commit `042f9b9`, 2026-11-01): seat logic, 2D grid, hold flow with a forced reject, seat card. Reviewer PASS, simulator pass, `pnpm check` green (28 suites, 117 tests).
+> - **3D attempt** (R3F native + `expo-gl`, 2026-11-02 to 2026-11-07): GL lab, keyframe runner, 8-carriage train, still-frame hero (simulator-tested), then M3b B1–B3 (per-car fakes, car chips, overview scene; unit-tested only, 49 suites / 307 tests, never run on the simulator). Abandoned: see [3d-train-checklist.md](3d-train-checklist.md).
+>
+> **Where the code is** (local branches; the first two commits are also in the pushed branch `origin/feat/my-journeys-page`):
+> - `backup/m1-m2a-code` (= `042f9b9`): the whole M1 + M2a app and tests. Browse with `git show backup/m1-m2a-code:<path>` or `git ls-tree -r backup/m1-m2a-code --name-only`.
+> - `backup/r3f-native-3d` (`961fbdb`): everything above plus the removed 3D work, the GL lab and all round logs.
+>
+> **What this file is for now:** the page design (what is on screen, decisions, fake data, hold flow, file layout, build order, open questions) for a fresh implementation. It builds on [architecture.md](architecture.md) and [codebase-structure.md](codebase-structure.md). The 3D parts moved to [3d-train-checklist.md](3d-train-checklist.md). Process lessons: [codebase-structure.md](codebase-structure.md), "Lessons from this attempt".
 
 ## Decided
 
-- The shell-peel is in this work, not deferred to phase 3.
-- The train is a placeholder built from three.js shapes. The real `.glb` comes later.
+- **3D is out of the restart's first pass.** The hero is a static image and the seat picker is the 2D grid. The shell-peel (originally "in this work, not deferred to phase 3") is deferred until a 3D approach is proven; see [3d-train-checklist.md](3d-train-checklist.md) (proposed: three.js in a WebView, after a one-session spike).
 - Development runs on the iOS simulator. The Android route for gate 1 is still open (Q3).
-- **The hero ships as the static image (Round 3, proposed; the user pre-approved the waiver).** The 3D hero is built but switched off behind `HERO_3D_ENABLED = false` in `seat-map-3d/config.ts`, because no 3D pixels were drawn on the iOS 26.5 simulator in two builds (a transparent canvas, then an opaque `scene.background`) and there is no physical device to test on. The 3D acceptance (the train sways) moves to a physical-device gate.
+- **Why 3D left:** on the iOS 26.5 simulator, R3F native + `expo-gl` presented nothing for continuous frames (and burned about 100% CPU); only one `invalidate()` per state change presented, and a bare `GLView` leaves about 1% CPU idle; there is no physical device. Evidence: the GL lab logs in [journey-detail-checklist.md](journey-detail-checklist.md).
+- **Restart default:** rebuild step by step in the order below, with `backup/m1-m2a-code` as the reference (read it, copy from it, or diff against it; the user decides per step, Q9). Do not bring back `HERO_3D_ENABLED`, the lazy loader, `ErrorBoundary`, `metro.config.js` or the 3D dependencies.
 
 ## Which screen is the mockup?
 
@@ -21,7 +32,7 @@ The title says "My Journeys", but the page has a back chevron, Overview / Live /
 | --- | --- | --- | --- |
 | 1 | Header: back chevron, "My Journeys", ⋮ button | screen | Round translucent buttons. ⋮ is a no-op for now. |
 | 2 | Segmented control: Overview · Live · Tickets | `shared/ui/SegmentedControl` | Active segment is a white pill. |
-| 3 | Hero: Shinkansen, Mt. Fuji, sakura, torii | `seat-map-3d/TrainHero` | Static image (placeholder art, Q5). The 3D train is built but switched off, see 3D hero. |
+| 3 | Hero: Shinkansen, Mt. Fuji, sakura, torii | `seat-map-3d/TrainHero` | A static placeholder image (flat drawings, Q5). A later 3D hero (see the 3D checklist) would replace the image. |
 | 4 | Journey card: train name, line · model, seat chip `7-E`, times, duration line, platforms, status | `journeys/components/JourneyCard` | "2h 12m" is derived from 09:00 → 11:12. The seat chip opens the seat picker (Q2). |
 | 5 | Card actions: dark pill **Show ticket** (QR icon) + round map button | `shared/ui/Button`, `IconButton` | Both no-ops for now (Q7). |
 | 6 | Journey details card: "Boarding opens in 12 min", "Car 7 · front of the train", "Window seat · Mt. Fuji side" | `journeys/components/JourneyDetails` | Rows are icon + title + subtitle. Row 3 is cut off in the mockup, so its subtitle is unknown. |
@@ -36,62 +47,41 @@ Layout notes:
 
 - **Styling:** `StyleSheet` + `shared/theme` tokens. NativeWind is still unverified, and `codebase-structure.md` already names this as the fallback.
 - **Images:** RN `Image`. `expo-image` is not installed, so add it in phase 1 with the lists.
-- **Icons:** none are installed. `@expo/vector-icons` is not in `pnpm-lock.yaml`, so under isolated installs it must be added explicitly (Q4).
+- **Icons:** none are installed. `@expo/vector-icons` is not in `pnpm-lock.yaml`, so under isolated installs it must be added explicitly (Q4); it needs `expo-font`, and icon fonts cannot load under jest, so `jest.setup.ts` mocks `expo-font`.
 - **Segments:** local `useState`. Live and Tickets show a placeholder line. No nested routes.
 - **Data:** typed in-memory fakes (the Q3 default in `codebase-structure.md`). `useJourney(id)` is a plain synchronous hook so the screen never knows where the data comes from. TanStack Query waits for phase 1 (Q6).
 - **Status and countdown:** "On time" and "12 min" are static fake values. They become realtime in phase 2.
 - **Gradient and blur:** none. No `expo-linear-gradient`, no `expo-blur`.
-- **No Zustand, no `@react-spring/three`, no gesture handler.** The peel machine is a pure reducer, animation is interpolation in `useFrame`, and the camera is fixed (see the seat picker).
+- **No Zustand and no gesture handler for the first page.** 3D (and with it the peel machine, animation and camera) is deferred; see [3d-train-checklist.md](3d-train-checklist.md).
 
-## 3D hero
+## Seat picker (2D now, 3D deferred)
 
-- **Home:** `features/seat-map-3d/`, as in `codebase-structure.md`. `index.ts` exports `TrainHero`, an eager wrapper. The R3F scene is `lazy()` inside Suspense plus an error boundary, so the static image shows while loading and when the scene throws while rendering or its load rejects (see Failure mode below for load-time errors). The barrel never imports three statically. `journeys` imports `TrainHero` only through the barrel.
-- **Look (when the flag is on):** a 3D placeholder train on a `Canvas`, swaying about ±12° around the vertical axis so it stays side-on like the mockup (no 360° spin, no touch interaction). The canvas is opaque (unverified: `scene.background` is `colors.heroSky`) and there is no scenery layer. **Status (Round 3, proposed): switched off.** A transparent canvas (Round 2) and an opaque `scene.background` (Round 3) both drew nothing on the iOS 26.5 simulator, although the Canvas mounts (THREE and EXGL log lines, no errors). The only build that ever drew was a diagnostic build that also had: a raw `expo-gl` `GLView` (a second GL context) in the hero, an explicit `gl.setClearColor('#00ff00', 1)` in `onCreated`, a `gl.render` wrapper calling `gl.getError()` (a GL sync), an unlit red cube and extra logging, with the scenery hidden. Which difference mattered is unknown. The next 3D attempt re-adds those pieces **one at a time, the raw `GLView` first**. Open bug to fix before re-enabling: after the detail screen was opened the app stayed at about 100% CPU, on `Live` too (the loop was not paused) and on the list after Back. The static image (full flat art, a placeholder) is what ships and is also the 3D path's loading and error fallback.
-- **Model:** the placeholder train below, shell closed.
-- **Frames (when the flag is on):** render continuously while the screen is focused and Overview is the active segment, and pause otherwise. If reduce-motion is on, show a fixed pose.
-- **Failure mode (when the flag is on):** if the scene throws while rendering, or its deferred load rejects, the page still ships with the static image. A module that throws while it is being loaded is reported by Metro as fatal (a red box in dev, probably a crash in a release build) and cannot fall back, so loading must not throw: `metro.config.js` resolves `three` as ESM, because `three` 0.186+ ships a Node-only `build/three.cjs` shim.
-
-## 3D seat picker with shell-peel
-
-The hero card is far too small to pick seats in, so the peel gets the full-screen route the architecture doc already defines: `/booking/[tripId]/seats`.
+The hero card is far too small to pick seats in, so the picker gets the full-screen route the architecture doc already defines: `/booking/[tripId]/seats`.
 
 **Split, from `codebase-structure.md`:**
 
-- `seat-map-3d` is **controlled and API-agnostic.** Props: `layout`, `status`, `selectedSeat`, `pendingSeat`, `onSeatPress`. The 3D and 2D maps take the same props type.
-- Its own machine covers camera and animation only: `idle → peeling → interior`. A pure reducer with two actions (peel, peel done), unit-tested.
-- **booking owns the hold.** `useSeatHold` drives the doc's `holding` step through props: pending → granted or rejected.
-- `SeatMap` is an eager wrapper that owns the 2D/3D choice (toggle, GL failure). Only its 3D branch is `lazy()`.
-
-**Placeholder train.** Built from three's shapes with the doc's mesh names, so the peel code does not change when the real `.glb` arrives: `Shell_Roof`, `Shell_Left`, `Shell_Right`, `Nose`, `Interior`, `Seat`. One car, 5 seat columns (3 + 2). The hero reuses the same model with the shell closed.
-
-**Peel.** Tap the train: the roof lifts, the side walls slide out and fade, the nose fades, and the camera moves to a fixed top-down view over the car. Interpolation in `useFrame` with three's own damping. Frame loop: continuous while idle (sway) and peeling, `demand` in `interior`.
-
-**Seats.** One `InstancedMesh`, coloured with `setColorAt`: grey = booked or held by someone else, white = free, accent = your selection. A tap gives an `instanceId`, mapped to a `seatCode` through an array built from the layout, and ignored unless the seat is white.
+- `seat-map-3d` is **controlled and API-agnostic.** Props: `layout`, `status`, `selectedSeat`, `pendingSeat`, `onSeatPress`. A future 3D map takes the same props type.
+- **booking owns the hold.** `useSeatHold` drives the doc's `holding` step through props: pending → granted or rejected; a result from an older request is dropped (latest request wins).
+- `SeatMap` is a thin wrapper that renders the 2D grid. (The 2D/3D toggle and the GL-failure fallback belong to the 3D work.)
 
 **Hold flow, all fake.**
 
-- `getSeatLayout(tripId, car)`: car 7, rows 1–8, columns A–E, with `pos` computed, a few booked seats and one held. Window seats are columns A and E.
-- `holdSeat(tripId, car, seat)`: resolves after about 600 ms with an `expiresAt`, rejects for one forced-reject seat (for example `5-B`), so "seat reverts to grey" is testable.
+- `getSeatLayout(tripId, car)`: car 7, rows 1–8, columns A–E, with `pos` computed (kept for a future 3D map), a few booked seats and one held. Window seats are columns A and E. (A later 3D work wants per-car layouts, `getTrain(tripId)` and row 1 at the head end; see the 3D checklist.)
+- `holdSeat(tripId, car, seat)`: resolves after about 600 ms with an `expiresAt`, rejects for one forced-reject seat (`5-B`), so "seat reverts to free" is testable.
 - Choosing another seat replaces the previous hold.
-- A rejected hold shows an inline message (no toast library) and the seat goes back to white.
+- A rejected hold shows an inline message (`role="alert"`, no toast library) and the seat goes back to free; the previous selection stays.
 
-**2D grid.** A minimal `SeatGrid2D` of pressables, taking the same props as the 3D map. It is the error-boundary fallback, the screen-reader path, and the only renderable seat map under jest. It is how the hold flow gets tested.
+**2D grid.** A minimal `SeatGrid2D` of pressables (48 pt cells, an aisle after column C), taking the same props as a future 3D map. State is never colour alone: taken seats carry a cross, the selected seat a check, the pending seat a spinner, plus ARIA state. It is the screen-reader path and the only seat map that can render under jest.
 
-**Seat card.** When a hold is granted, show the seat code and window or aisle. **Continue** is a no-op (checkout is not built). The "Mt. Fuji side" note is not modelled.
+**Seat card.** When a hold is granted, show the seat code and window, aisle or middle. **Continue** is a no-op (checkout is not built). The "Mt. Fuji side" note is not modelled.
 
 **Entry point.** The seat chip on the journey card opens `/booking/<tripId>/seats`. This is temporary until the search flow exists (Q2). The `Journey` fake gets a `tripId`.
 
-**Riskiest unverified piece: touch picking.** Tap → `instanceId` on an `InstancedMesh` under R3F native and `expo-gl`. Step 10 starts with this, before any animation (**blocked until 3D draws at all**, see the next-attempt plan in the checklist's Round 3 reviewer section; it needs a physical device or the one-at-a-time diagnostic route). If it fails, selection still works through the 2D grid.
+## 3D (deferred, removed from this plan)
 
-## 3D dependencies and build
+The hero 3D train, the shell-peel and the 3D seats were designed here first, then built with R3F native and removed. Their design, numbers and lessons are in [3d-train-checklist.md](3d-train-checklist.md); the old text of this plan about them is in the git history (`git show backup/m1-m2a-code:docs/journey-detail-plan.md`).
 
-- **Dependencies:** `npx expo install expo-gl expo-asset expo-file-system`, then `three`, `@react-three/fiber@^9` and `@types/three`. `expo-asset` and `expo-file-system` are R3F peers, so they must be explicit under isolated installs. R3F 9 needs React `>=19 <19.4` and the project has 19.3.0, so a React bump would break it. Import from `@react-three/fiber/native`. Registry check: `expo-gl` 58.0.4, R3F 9.8.2. Drei and the `glb` asset extension are added when the real model arrives.
-- **Build:** a native dev build is required, not Expo Go. `npx expo run:ios` works on this machine (Xcode and a booted iPhone 17 Pro simulator exist), and `/ios` and `/android` are gitignored. **Simulator FPS does not count for gate 1.** There is no physical device yet, so gate 1 and 3D performance stay unmeasured; the simulator uses software GL (a Round 3 run with diagnostic logging measured the JS loop at about 2 fps). Gate 1 is a release build on a physical Android phone, still blocked on Q3 (there is no `ANDROID_HOME`).
-- **Metro:** `three` 0.186+ resolves `require('three')` to `build/three.cjs`, a Node-only shim that calls `process.emitWarning` (missing in React Native), and R3F native's CJS build does `require('three')`. `metro.config.js` resolves `three` with `isESMImport: true`, so Metro takes `build/three.module.js`. Check without a device: `npx expo export --platform ios --no-bytecode` and count `THREE_CJS_DEPRECATED` in the bundle (expect 0).
-- **Jest:** the real `three` cannot load under jest (`three.cjs` itself `require`s an ES module), and `import()` cannot run under jest here (babel-preset-expo leaves it for Metro). So any test that renders `TrainHero` or `SeatMap`, the screen tests included, would fail on the lazy load. Two answers: the scene is loaded with a deferred `require` (not `import()`), and one global mock of the scene modules in `jest.setup.ts` (which also mocks `expo-font`, because icon fonts cannot load under jest). Tests: a scene that throws at render or at load shows the static image (hero) or the 2D grid (picker); jest cannot reproduce Metro's fatal guard for load-time errors, so that path is covered only on a device.
-- **Not verified yet:** how R3F's native loader behaves with the real `.glb` (embedded textures are a commonly reported snag on RN). It does not matter until the model exists.
-
-### Fake data shapes
+## Fake data shapes
 
 ```ts
 interface Journey {
@@ -114,6 +104,8 @@ interface Stop { city: string; time: string; platform: string }
 The seat types (`SeatStatus`, `SeatLayout`) are the ones in `architecture.md`. They live in `seat-map-3d/types.ts`, and `booking` imports them through the barrel.
 
 ## Files
+
+Planned layout. Everything here except the 3D folders was built once; the code is in `backup/m1-m2a-code`. The tree today is the Day-0 scaffold only.
 
 ```
 src/
@@ -138,45 +130,48 @@ src/
     hooks/useSeatHold.ts
     screens/SeatPickerScreen.tsx
   features/seat-map-3d/
-    index.ts                        Exports TrainHero, SeatMap, SeatGrid2D, types. No static three import.
+    index.ts                        Exports TrainHero (static image), SeatMap (2D only), types
     types.ts                        SeatMapProps, SeatStatus, SeatLayout
-    config.ts                       HERO_3D_ENABLED (false: the hero is the static image; not exported from the barrel)
-    TrainHero.tsx                   Eager: lazy(HeroScene) in Suspense + error boundary, static fallback
-    SeatMap.tsx                     Eager: 2D/3D toggle, lazy(SeatScene) + error boundary → SeatGrid2D
-    scene/HeroScene.tsx  SeatScene.tsx
-    models/PlaceholderTrain.tsx     Primitives with the doc's mesh names
-    animation/peelMachine.ts        Pure reducer: idle → peeling → interior
-    seats/Seats.tsx  layoutToInstances.ts
+    seatVisual.ts                   free | taken | pending | selected from status + props
+    TrainHero.tsx                   The static hero image in a labelled, clipped slot
+    SeatMap.tsx                     2D only: renders SeatGrid2D (3D would branch here later)
     fallback-2d/SeatGrid2D.tsx
   shared/
     theme/                          colors, spacing, radius, typography, shadows
     ui/                             Card, Button, IconButton, SegmentedControl, Divider, TabBar
     lib/format.ts                   formatDuration(from, to) → "2h 12m"
-assets/images/hero-static.png       Full-hero fallback (placeholder, Q5)
-jest.setup.ts                       Mocks expo-font and the scene modules
-metro.config.js                     Resolves three as ESM (three >= 0.186 ships a Node-only three.cjs)
+assets/images/hero-static.png       The hero image (placeholder art, Q5)
+jest.setup.ts                       Mocks expo-font (icon fonts cannot load under jest)
 ```
+
+Not in the plan any more (3D deferred): `scene/`, `models/`, `animation/`, `seats/`, `config.ts` (`HERO_3D_ENABLED`), `metro.config.js`, the 3D dependencies and the scene mocks in `jest.setup.ts`.
 
 Route trap: without the nested `journeys/_layout.tsx` Stack, `[id]` shows up as its own tab or hides the tab bar. Check the layout against `.claude/skills/expo-router/references/route-structure.md`. The skill prefers `NativeTabs`, but the mockup's floating pill needs JS `Tabs` with a custom `tabBar`. `booking/` sits outside `(tabs)`, so the seat picker covers the tab bar.
 
-`src/app/index.tsx` stops being the placeholder, so `src/__tests__/home.test.tsx` must be replaced (step 2).
+`src/app/index.tsx` stops being the placeholder, so `src/__tests__/home.test.tsx` must be replaced (step 2). That is the current state: both exist in the Day-0 scaffold.
 
 ## Build order
 
-Each step ends green on `pnpm check`. Steps 1–7 build the whole page with a static hero. Steps 8–9 build the hold flow with no 3D. 3D never blocks the rest.
+Each step ends green on `pnpm check`, then gets a simulator pass. Status is as of the removal: **built then removed (see `backup/m1-m2a-code`)** or **not built**. For the restart, do steps 0–5 and 7–9, 11 in order; 3D (6, 10) is a separate track.
 
-0. **Install.** `node_modules` is missing in this worktree, so run `pnpm install` before anything else.
-1. **Foundation.** `shared/theme` tokens, `Card`, `Button`, `IconButton`, `SegmentedControl`, `formatDuration`. Add `@expo/vector-icons`. Tests: `SegmentedControl` switches value, `formatDuration` gives `2h 12m`.
-2. **Route skeleton + TabBar.** All tab routes above, with stub screens. Replace the home test by rendering `JourneyDetailScreen` directly. A navigation test (list link opens detail, tab bar stays) needs Expo Router's in-memory test helper, which no project skill documents, so check it after install. Confirm on the simulator that the bar floats and `[id]` is not a tab.
-3. **Journeys data.** `types.ts`, `api/fake.ts`, `useJourney`. Unknown id returns `undefined`, and the screen shows a short "not found" line.
-4. **Components.** `JourneyCard`, `JourneyDetails`, and `TrainHero` as a static-image wrapper (no three yet). Test: `JourneyCard` shows `Nozomi 32`, `7-E`, `09:00`, `11:12`, `2h 12m`, `On time`.
-5. **Screen.** Header, segments, scroll area with bottom padding, composition. Live and Tickets placeholders.
-6. **3D hero.** Add the 3D dependencies, then `HeroScene` and `PlaceholderTrain`. Make `TrainHero` lazy-load the scene with Suspense and an error boundary. Add focus, segment and reduce-motion handling, the jest mock and the fallback test. Run `npx expo run:ios` and watch the train sway. **Built, shipped disabled (Round 3):** `HERO_3D_ENABLED = false`, so the hero is the static image; the sway check moves to a physical device.
-7. **Compare the page with the mockup.** Run next to the image, fix spacing and colour drift.
-8. **Seat logic, pure TypeScript.** `types.ts`, `peelMachine`, `layoutToInstances`, the fake layout and `holdSeat`. Unit tests: the peel reducer, instance → seat code mapping, and the forced reject.
-9. **Seat picker with the 2D grid.** `SeatGrid2D`, `SeatMap` (2D only for now), `useSeatHold`, `SeatPickerScreen`, the route, and the seat chip link. RNTL tests: tap a free seat → pending → selected, and the forced-reject seat goes back to white with a message.
-10. **3D seats and peel.** First a tap-picking spike on the simulator: tap → `instanceId` on a plain `InstancedMesh`. Then `Seats`, the placeholder parts, the peel animation and camera move, and the seat colours. Wire `SeatMap`'s lazy 3D branch, the toggle and the error-boundary fallback. **Blocked (Round 3, proposed):** nothing 3D has drawn on the simulator yet, so the tap-picking spike cannot run until 3D draws at all (a physical device, or the one-at-a-time diagnostic route above).
-11. **Seat card.** Granted hold shows the card with a no-op **Continue**. Final `pnpm check` and a pass on the simulator.
+0. **Install** *(built then removed)*. `pnpm install`; add `@expo/vector-icons` with step 1. No 3D dependency.
+1. **Foundation** *(built then removed)*. `shared/theme` tokens, `Card`, `Button`, `IconButton`, `SegmentedControl`, `formatDuration`. Add `@expo/vector-icons`. Tests: `SegmentedControl` switches value, `formatDuration` gives `2h 12m`.
+2. **Route skeleton + TabBar** *(built then removed)*. All tab routes above, with stub screens. Replace the home test by rendering `JourneyDetailScreen` directly. A navigation test (list link opens detail, tab bar stays) uses Expo Router's in-memory test helper (`renderRouter` from `expo-router/testing-library`). Confirm on the simulator that the bar floats and `[id]` is not a tab.
+3. **Journeys data** *(built then removed)*. `types.ts`, `api/fake.ts`, `useJourney`. Unknown id returns `undefined`, and the screen shows a short "not found" line.
+4. **Components** *(built then removed)*. `JourneyCard`, `JourneyDetails`, and `TrainHero` as a static-image wrapper (label `Shinkansen in front of Mt. Fuji`, clipped, sized to its slot). Test: `JourneyCard` shows `Nozomi 32`, `7-E`, `09:00`, `11:12`, `2h 12m`, `On time`.
+5. **Screen** *(built then removed)*. Header, segments, scroll area with bottom padding, composition. Live and Tickets placeholders.
+6. **3D hero** *(built with R3F native, then removed; NOT part of the restart)*. The hero stays the static image. A WebView hero is step 2 of the proposed 3D order in [3d-train-checklist.md](3d-train-checklist.md).
+7. **Compare the page with the mockup** *(done once)*. Run next to the image, fix spacing and colour drift. The mockup image is gone: re-attach it if the look must match again.
+8. **Seat logic, pure TypeScript** *(built then removed)*. `types.ts`, the fake layout and `holdSeat`, `seatVisual`. Unit tests: the forced reject, the visual states.
+9. **Seat picker with the 2D grid** *(built then removed)*. `SeatGrid2D`, `SeatMap` (2D only), `useSeatHold`, `SeatPickerScreen`, the route, and the seat chip link. RNTL tests: tap a free seat → pending → selected, and the forced-reject seat goes back to free with a message.
+10. **3D seats and peel** *(not built to the end; deferred)*. A tap-picking spike worked in the GL lab and a side-on overview scene was built (B1–B3), but the R3F-native approach was dropped. See the 3D checklist.
+11. **Seat card** *(built then removed)*. Granted hold shows the card with a no-op **Continue**. Final `pnpm check` and a pass on the simulator.
+
+### Restart notes
+
+- **Reuse from the backups** (copy as reference, do not merge a branch): the theme tokens (measured colours and sizes, also recorded in "Theme tokens" of [journey-detail-checklist.md](journey-detail-checklist.md)), the hold-race logic in `useSeatHold`, the tap table of the 2D grid (measured, zero drift), the test patterns (`renderRouter`, `within`, v14 awaited calls).
+- **Change given the lessons:** start with data and 2D, add no 3D scaffolding (no flag, no lazy loader, no Metro resolver); run `npx expo export --platform ios --no-bytecode` and a simulator pass after every step, not only `pnpm check`; keep layout numbers (tap tables) computed AND measured; keep the work-in-progress committed on a branch so nothing is only in the working tree.
+- **Rename the feature folder** `seat-map-3d` only if 3D never returns (the architecture doc names the module; default: keep, Q10).
 
 ## Out of scope
 
@@ -193,10 +188,9 @@ Each step ends green on `pnpm check`. Steps 1–7 build the whole page with a st
 
 - Screen matches the mockup at 390 pt wide (items 1–7 above).
 - Tab bar stays visible on `/journeys/<id>`; back chevron returns to the list.
-- The hero is the static image (the 3D hero is built but switched off behind `HERO_3D_ENABLED`), filling its 402×174 slot, clipped, with the app idle at about 0% CPU. The sway, and the static fallback on a scene error, are verified on a physical device when one exists (gate); not on the simulator.
+- The hero is the static placeholder image, filling its 402×174 slot, clipped and labelled `Shinkansen in front of Mt. Fuji`.
 - **M2a:** the seat chip opens the picker; tapping a free seat holds it (a spinner, then a ✓ and the seat card); the forced-reject seat goes back to free with a message and the previous seat stays selected.
-- **M2b (step 10, parked until 3D draws):** tapping the train peels the shell and moves the camera over the seats; tapping a seat in 3D holds it.
-- **M2b:** with the 3D scene mocked or failing, the 2D grid shows the same seats and passes the same hold tests.
+- **M2b (deferred, not part of the restart):** tapping the train peels the shell and moves the camera over the seats; tapping a seat in 3D holds it; with the 3D scene failing, the 2D grid shows the same seats and passes the same hold tests. Redo only after the WebView spike in [3d-train-checklist.md](3d-train-checklist.md).
 - Tests listed in steps 1–11 pass, plus `pnpm check`.
 
 ## Open questions (default if unanswered)
@@ -209,3 +203,5 @@ Each step ends green on `pnpm check`. Steps 1–7 build the whole page with a st
 6. **TanStack Query now,** or wait for phase 1? *(default: wait)*
 7. **Show ticket / map button:** no-op, or link to a `/ticket/[ticketId]` stub? *(default: no-op)*
 8. **Tab bar blur:** add `expo-blur`, or a solid fill? *(default: solid white; translucent was dropped because a translucent fill plus a shadow logs a shadow warning on iOS)*
+9. **Restart method:** rebuild from the plan with `backup/m1-m2a-code` as reference, or copy files from it step by step? *(default: rebuild step by step, copying a file only when the user says so; the backup is the checklist's answer key)*
+10. **Folder name:** keep `features/seat-map-3d` (the architecture doc's module) or rename to `seat-map` while it has no 3D? *(default: keep, rename if 3D never comes back)*

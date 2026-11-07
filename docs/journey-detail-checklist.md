@@ -1,5 +1,12 @@
 # Journey detail page and 3D seat picker — executable checklist
 
+> **Status: code removed on purpose; the user will start again. This PR is docs-only. This file is now EVIDENCE: the old executable checklist and its round logs, kept unedited below this banner.** Nothing it describes exists in the tree (the tree is the Day-0 scaffold).
+>
+> - **What was built and verified before removal:** M1 (steps 0–7, commit `cd2fac1`, 2026-11-01; passed only under the user's waiver for the 3D hero, which never drew), M2a (steps 8, 9, 11, commit `042f9b9`, 2026-11-01; reviewer PASS, simulator pass, 28 suites / 117 tests), and the R3F-native 3D attempt (GL lab, `/dev/gl`, M3a, M3b B1–B3; 2026-11-02 to 2026-11-07).
+> - **Where the code is** (local branches): `backup/m1-m2a-code` (= `042f9b9`; the two commits are also in `origin/feat/my-journeys-page`) and `backup/r3f-native-3d` (`961fbdb`, with the 3D work and the lab).
+> - **3D sections:** step 6, step 10, the Round 2 and 3 logs, "GL lab" and its parts 1-4 describe the **removed R3F-native + `expo-gl` attempt**; `HERO_3D_ENABLED`, `metro.config.js`, `scene/`, `models/` and the 3D dependencies named in them no longer exist. The conclusions are in [3d-train-checklist.md](3d-train-checklist.md).
+> - **Still useful for the restart:** the step list and "Standing review checks" (steps 0–5, 7–9, 11), "Theme tokens" (measured colours and sizes), "Research results", and the M2a tester/reviewer logs. The plan to follow is [journey-detail-plan.md](journey-detail-plan.md); process lessons are in [codebase-structure.md](codebase-structure.md).
+
 > Source: [journey-detail-plan.md](journey-detail-plan.md) (steps 0–11). Context: [architecture.md](architecture.md), [codebase-structure.md](codebase-structure.md). Written by the planner agent. Baseline: branch `feat/my-journeys-page`, HEAD `2145f26`, no `node_modules`, no `graphify-out/` (graphify steps skipped).
 
 ## How to use
@@ -2261,3 +2268,485 @@ Also consistent with the code and the screenshots: the helper line, the orange m
 - Plan Q7 (Show ticket destination: default no-op) and Q6 (TanStack Query: default wait, until the first async API) are implemented by their defaults and can stay.
 
 **4. Recommended next feature.** In this order, each small and without new dependencies until the API question is answered: (1) **the Journeys list screen**, replacing the one-link stub, because it is the app's front door and the detail page is only reachable through a stub link today (data from the existing fake); (2) **checkout with a hold countdown** (`/booking/[tripId]/checkout`): wire `Continue`, expose `expiresAt` from `useSeatHold`, count down from it, release or replace the hold on leave (this also forces the stale-hold and deselect decisions above); (3) the search flow (`/booking/search`) feeding trips into the picker, together with the real-API decision (Q3, TanStack Query, the trip-not-found state).
+
+---
+
+## GL lab (temporary, branch `feat/3d-train-peel`)
+
+**Goal:** find out why no 3D pixel draws on the iOS 26.5 simulator, with every variant in one tester session, no rebuild and no reload. Built from the reviewer's no-device plan (Round 3 reviewer, Parts 3 and 5, runs N0-N7) plus a positive and a negative control. Dev-only: `trainapp://dev/gl`; a production bundle renders nothing. Shipped screens are untouched and `HERO_3D_ENABLED` stays `false`.
+
+### Observer script for the tester (one session, JS only)
+
+1. **Setup.** `export LANG=en_US.UTF-8 && npx expo start -c --port 8082` (no `CI=1`; no native rebuild: `expo-gl` is already in the installed app). Open the lab: `xcrun simctl openurl booted "trainapp://dev/gl"`. It starts **idle** (no GL): a dark page, an orange-framed slot, a label `idle · mount 0`, and one button per variant. Accept iOS's "Open in Train Ticket?" prompt if it shows.
+2. **Reference rectangle (pixel scans).** The slot is **320 × 180 pt**, x 41 to 361, y from `top inset + 8 + 2` (62 + 10 = **72**) to 252, inside a 2 pt orange (`#ff8800`) frame; page and empty slot are `#222222`, so *any* non-`#222222` pixel inside the slot means something was presented. In 3x screenshots that is x 123-1083, y 216-756. Scan colours: green `(0,255,0)` clear, red `(255,0,0)` cube, magenta `(255,0,255)` raw GLView (square at slot x 8-64, y 8-64, i.e. screen x 49-105, y 80-136; full slot for `rawgl`), sky `(238,242,246)` (shipped `scene.background`), train body light grey/white, stripe `#2E6695`.
+3. **Run each variant.** Tap its button (or `openurl ".../dev/gl?v=<id>"` after terminating the app for a clean run). For each: screenshot the slot at about 2 s, 5 s and 10 s, and count pixels of the scan colours; paste every `[gl-lab]` line from Metro (formats: `<id> mount`, `<id> created {size, dpr, buffer, frameloop}`, `<id> frame {n, meshes, visibleMeshes, buffer[, glError]}` for frames 1-3 then every 60th, `<id> raw created/raw frame`, `<id> glError@12s` once, 12 s after mount, `<id> unmount`). `top -pid <pid> -l 3` for CPU at idle, at 5 s, and 5 s after `stop`. Press `stop` between variants; every press is a fresh mount.
+4. **Suggested order (about 10 minutes):** `rawgl`, `raw3`, `cplus`, `cminus`, `replica`, then `demand`, `beside`, `clear`, `transp`, `geterr`, `finish`, `nomsaa`, `cube`, then the CPU gate twice: `cpu` (default `cplus`) and `?v=cpu&of=rawgl`. GL contexts may not be released when a variant unmounts (CPU gate), so earlier variants could affect later ones: **if a result contradicts the table, re-run that variant from a freshly terminated app via its `?v=` link** and report both.
+5. **CPU gate.** `cpu` mounts the target for 10 s, then unmounts (logs `cpu gate mount` / `gate unmount`, slot shows "unmounted at 10 s"). Sample CPU at 5 s, 12 s, 20 s and 30 s after pressing. ~0% after unmount = released; still high = a leaked context or loop (this is the open "100% CPU after Back" bug).
+6. Also report: `xcrun simctl list runtimes`, any `ERROR`/`WARN`/`ADVICE` lines with text, whether a red or LogBox screen appeared, and "variant threw or failed to load" labels.
+
+**Variants (what each is)**
+
+| id | What it is | Expected |
+| --- | --- | --- |
+| `cplus` | C+ positive control: Round 3 diagnostic recipe (raw magenta square + R3F canvas, opaque green `setClearColor`, red cube, getError before render, probe, train) | draws green, red cube, magenta (it did in Round 3) |
+| `cminus` | C-: the real shipped `HeroScene` (opaque `scene.background`, train) | drew nothing before |
+| `replica` | Lab copy of C- + a JS-only render wrapper (logs). Base of the N-steps | same as `cminus` |
+| `raw3` | No R3F: raw `GLView`, plain three `WebGLRenderer`, scene, unlit red cube, hand-rendered, `endFrameEXP`, green clear (~5 s) | unknown |
+| `rawgl` | No three, no R3F: raw `GLView` filling the slot, magenta redrawn ~3 s | unknown (drew as a square in Round 3) |
+| `demand` | replica + `frameloop="demand"` | single change |
+| `beside` | replica + raw magenta square beside the canvas (a second GL context) | single change |
+| `clear` | replica with explicit opaque green `setClearColor` instead of `scene.background` | single change |
+| `transp` | replica with the default transparent clear (Round 2 config) | drew nothing in Round 2 |
+| `geterr` | replica + sync `gl.getError()` after each logged render | single change |
+| `finish` | replica + sync `gl.finish()` after every render | single change |
+| `nomsaa` | replica with `gl={{ antialias: false }}` (msaaSamples 0) | single change |
+| `cube` | replica + 3×3×3 unlit red cube | single change |
+| `inv10` | `demand` + a timer calling `invalidate()` at ~10 fps (stopped on unmount); the train sways | animates if `demand` frames keep presenting |
+| `inv30` | same at ~30 fps | as `inv10`, smoother, CPU higher |
+| `invsync` | `inv10` + a sync `gl.getError()` after each render | single change from `inv10` |
+| `pick` | `demand`, 3 boxes + an `InstancedMesh` of 12 (4 × 3 grid); touches enabled; logs every touch | tap logs `pick instanceId=<n>` and tints that instance |
+| `peel` | `demand` + 10 fps loop; a box carriage whose roof and two walls lift/slide out and fade over ~1.5 s on tap while the camera goes side-on to top-down; second tap reverses | stages logged; fade and camera visible |
+| `steps` | `demand`, **no timer, no loop**: buttons `closed / 25% / 50% / 75% / open` set the peel state; each press = pose the rig, ONE `invalidate()`, then (unless `?sync=0`) a sync `getError()` after that render, then logs `[gl-lab] state=<n> rendered p=<p> glError=<e>`; on-screen label shows the state | each state visible 3-5 s after the press |
+| `autosteps` | same carriage; **tap once** to run the states at one per ~1 s (one render + sync each), stops after the last with no loop left; tap again to run back | a coarse animation |
+| `stepsopaque` | `steps` with every material opaque: roof (slides off along the car), walls (slide out) only move, no opacity | separates "opacity fails" from "presenting fails" |
+| `hitbox` | S1: real train, hero camera; four hit boxes over cars 1-4 (A `visible={false}`, B `material.visible=false`, C opacity 0, D visible translucent control) | which forms report a click |
+| `hitboxside` | S1: the same forms over cars 2-6 under the picker's side-on overview camera | same, with the camera the picker will use |
+| `seats40` / `seats40basic` | S3: top-down interior, 40 instanced seats (free white, reserved grey with an X, selected blue), lit / unlit | tap picks the seat and recolours it with one render |
+| `twolate` / `twosame` | S2: hero canvas (left) + seats canvas (right); the second mounts at 6 s (or at 0 s), unmounts at 16 s, remounts at 22 s | both present, picking works, CPU drains |
+| `cpu` | mount a variant (default `cplus`, or `?of=<id>`, any variant incl. the new ones) for 10 s, unmount | CPU gate |
+
+**Reading the result (take the first row that matches; logs first, picture second)**
+
+| # | Observation | Conclusion | Next |
+| --- | --- | --- | --- |
+| 1 | `rawgl` logs frames but shows no magenta | Plain expo-gl cannot present on this simulator (H1); nothing else can work here | Stop; a device is needed; keep `HERO_3D_ENABLED = false` |
+| 2 | `rawgl` draws, `raw3` does not (its `raw frame` lines show `visibleMeshes` 1, `glError` 0 at 12 s) | three's `WebGLRenderer` on expo-gl is the problem (framebuffer, extensions, render target), not R3F | Inspect `glError`, try other renderer options; consider pinning an older `three` |
+| 3 | `raw3` draws but `replica`/`cminus` do not | The R3F layer (canvas setup, loop, `endFrameEXP` wrapper) is the problem | The N-steps below say which part |
+| 4 | `cplus` does **not** draw in the lab | The Round 3 success depended on something this isolated route lacks (timing, the hero context) or on luck; re-run clean; compare with Round 3 logs | Re-run `cplus` from a fresh launch before concluding |
+| 5 | `cplus` draws, `cminus` and `replica` do not | Reproduces the failure in isolation; the page context (ScrollView, container) was **not** the cause; the N-steps pinpoint it | Read rows 6-12 |
+| 6 | `cminus` does not draw but `replica` does | The lab's logging wrapper (or a lab difference) makes frames appear: a render wrapper that touches `scene` matters | Diff the wrapper; try it in the shipped `HeroScene` |
+| 7 | `cminus` and `replica` both draw | The shipped hero config works in the lab: the failure is in the page context (Hero container, ScrollView, `overflow`, `Activity`) | Integrate step by step on the real detail screen |
+| 8 | `clear` draws, `replica` does not | Explicit opaque `setClearColor` is needed; `scene.background` does not reach the screen | Use `setClearColor` in `HeroScene` |
+| 9 | `beside` draws, `replica` does not | A second GL context (the raw `GLView`) enables presenting | Keep a tiny raw `GLView`, or find why |
+| 10 | `geterr` or `finish` draws, `replica` does not | A GL sync is needed for frames to present (flush/present issue) | Add a sync after `endFrameEXP`, or throttle |
+| 11 | `demand` draws (one frame) but `replica` does not | The continuous loop (back-pressure) breaks presenting, a single frame works | Throttle with `invalidate()` at 20-30 fps |
+| 12 | `nomsaa` draws, `replica` does not | The 4x MSAA surface is the problem | Pass `gl={{ antialias: false }}` |
+| 13 | `cube` draws but `replica` (train) does not | The model or lights are the issue (lit materials, closed shell, camera), not GL | Check the train, lights and camera |
+| 14 | `transp` does not draw but `clear`/`replica` do | Consistent with the Round 2/3 finding: opaque clear needed | — |
+| 15 | After `stop`/gate unmount CPU stays high for R3F variants but not for `rawgl` | R3F canvas unmount leaks the loop or context (the CPU bug) | Fix before enabling the flag |
+
+### GL lab part 2: frame drivers, touch picking and the peel (observer script addendum)
+
+Run these from a freshly terminated app each (`openurl "trainapp://dev/gl?v=<id>"`), as in the first session; the `always` loops starve the JS thread, so button switching is unreliable after them.
+
+1. **`inv10`, `inv30`, `invsync` (does a stream of `demand` frames animate?).** Burst-capture the slot for **30 s** (as many `simctl io screenshot` as possible; note wall time). Count **distinct slot images** (hash the slot crop). The train sways about ±12° over a 6 s period, so a presenting 10 fps stream should give many distinct images (tens to hundreds); the first session's `always` variants gave 3 in 30 s. CPU by `top -pid` at 5 s, 15 s and 30 s, and 5 s and 20 s after `?v=cpu&of=inv10` unmounts. Logs: `<id> frame {n, dtMs, avgDtMs, maxDtMs, ...}` every 30th render (`dtMs` is the time between *render calls* seen from JS, not presented frames; compare `n` per second with the distinct-image rate), `<id> mount`/`unmount`.
+2. **`pick` (does R3F native touch picking on an `InstancedMesh` work?).** The slot shows 3 blue boxes on top and 12 white instances in a 4 × 3 grid below, on a light canvas. Tap three different instances, one box, and one empty spot (use `xcrun simctl` taps through your tool; a tap must not move more than 20 px). Capture **every** `[gl-lab]` line: `touch raw start x=.. y=..` / `touch raw end` (React Native touches reaching the slot), `touch pointerdown/pointerup instanceId=<n|none>` (R3F), `pick instanceId=<n>` (a click on an instance), `pick box=<i>`, `touch miss (no object hit)`. Screenshot after each tap: the tapped instance turns orange (`#ff8800`). Record whether `instanceId` equals the grid index (row-major, 0 top-left of the instance grid).
+3. **`peel` (the riskiest part of the real build).** Watch the slot: a white box carriage seen side-on with blue seats inside. Tap it once, screenshot at 0.5 s, 1 s, 2 s and 3 s; then tap again and screenshot the same way. Expected: roof lifts, walls slide out and fade to transparent, camera arcs to a top-down view of the seats (seat boxes visible from above, carriage long axis horizontal), the second tap reverses. Logs: `peel tap {via: carriage|miss, target}`, `peel progress {p, opacity, cameraDeg, roofY}` at p ≈ 0.25/0.5/0.75/1 (and back down), `peel stage {stage: open|closed}`. Note: whether the fade is visible (transparent materials), whether the camera view is stable at top-down (no flip or roll), whether the second tap (in top-down) still toggles, and the CPU while idle in each state.
+4. **Also:** `?v=cpu&of=<id>` works for every variant above; report the CPU curve for `inv10` and `peel`.
+
+| # | Observation | Conclusion | Next |
+| --- | --- | --- | --- |
+| 16 | `inv10` gives many distinct images over 30 s and CPU stays low (under ~30%) | A throttled `invalidate()` loop on `frameloop="demand"` animates on the simulator: this is the frame driver | Use it in the real train; raise the rate until CPU or presenting degrades |
+| 17 | `inv10` gives only a few distinct images (like the `always` variants) | Frames are issued but presented only every few seconds: presenting is rate-limited by something else (software GL, one present per sync) | Try `invsync`, a lower rate, or accept a still-per-tap design on the simulator |
+| 18 | `inv30` animates as well as or better than `inv10` with CPU acceptable | The driver scales to 30 fps in software GL | Prefer the highest rate with CPU under budget |
+| 19 | `inv30` shows fewer distinct images or ~100% CPU, `inv10` is fine | 30 fps saturates the simulator's software GL | Cap near 10-15 fps on the simulator |
+| 20 | `invsync` animates but `inv10` does not | The `getError` sync is what makes frames present in a stream | Keep a sync call per frame (and check its CPU cost) |
+| 21 | CPU does not drain after the `cpu` gate unmounts `inv10` | Even the demand driver leaks a loop or context on unmount | Check the `Driver` cleanup and R3F unmount; do not enable in the app |
+| 22 | `pick`: `touch raw start` appears, but no R3F `touch pointerdown`/`pick` lines | RN touches arrive but R3F native does not dispatch to meshes (overlay, events config) | Check the Canvas events setup and the 20 px click rule; fall back to 2D picking |
+| 23 | `pick`: `pointerdown instanceId=<n>` and `pick instanceId=<n>` with the right index, instance turns orange | R3F native picking on an `InstancedMesh` works on the simulator (the step 10 risk is cleared here) | Map `instanceId` to seats as planned |
+| 24 | `pick`: `instanceId=none` or a wrong index on instance taps | `instanceId` is not reliable on expo-gl | Use per-seat meshes or pick by position |
+| 25 | `pick`: no `touch raw start` at all | Touches do not reach the slot (a layer is swallowing them) | Check the `pointerEvents` and the overlay |
+| 26 | `peel`: all stages logged, roof/walls fade and move, camera arcs to a stable top-down view and back | The peel (transparent fade, camera arc with a rotating `up`) works on the simulator | Build the real multi-carriage peel on this |
+| 27 | `peel`: logs advance but walls/roof do not fade (stay opaque or vanish at once) | Material opacity is not honoured (`transparent` or depth sorting problem) | Try `depthWrite: false`, scale-out instead of fade |
+| 28 | `peel`: the top-down view flips, rolls or is blank | The camera `up`/arc handling is wrong on this stack | Adjust the arc, set `up` explicitly, offset the camera slightly from vertical |
+| 29 | `peel`: animation visible only as 2-3 jumps | The presented frame rate is too low for a smooth peel (as the always variants) | Treat as simulator limit; judge on a device |
+| 30 | `peel`: a tap in the top-down view does not toggle back | Picking fails once the roof is transparent/lifted or the camera moved | Add a UI button to toggle instead of tapping the model |
+
+### GL lab part 3: discrete peel states (observer script addendum)
+
+Context: part 2 showed no frame stream animates on the simulator. These variants render **one frame per state** so the peel's *look* can be judged. Run each from a freshly terminated app (`openurl "trainapp://dev/gl?v=<id>"`). `steps` also takes `&sync=0` (no sync `getError()`); default is sync on.
+
+1. **`steps`.** Five buttons appear under the slot (`closed`, `25%`, `50%`, `75%`, `open`) and a label `state <n> (<name>) requested` / `rendered · sync on|off`. Press `closed` first (the scene also renders state 0 by itself on mount), then `25%`, `50%`, `75%`, `open`, then back down (`75%`, `50%`, `25%`, `closed`). After **each press wait up to 5 s** (drawing variants needed 3-5 s) polling screenshots every ~0.5 s; record the time from the press until the slot image changes (or "never", up to 15 s), the label text, and the `[gl-lab] state=<n> rendered ...` log line (the log line says a render happened; the image says it was presented). Compare `requested` vs `rendered` in the label: stuck on `requested` = no render at all.
+2. **Reference regions (estimates from the geometry: camera fov 30 at distance 10, slot 320 × 180 pt, about 33.6 pt per 3D unit; confirm on the first screenshot).** Side-on (closed): a white carriage about 269 pt wide (slot x 25-295, screen x 66-336) and about 74 pt tall around the slot's vertical centre (screen y about 125-200); blue seats `#2e6695` low inside, hidden by the closed walls. Top-down (open): the carriage long axis is horizontal; the two wall strips sit near the slot's top and bottom edges (about ±94 pt from the centre, partly clipped); the roof is gone (faded with `steps`, slid off the left/right edge in `stepsopaque`); **six blue seat boxes** (2 rows × 3, centre area, each about 17 pt wide) are visible. Count `#2e6695` pixels per state: ~0 closed, rising with progress, maximum at `open`. Camera orientation: at `closed` the view is side-on (horizon-level), at `open` straight down with the car long side horizontal; intermediate states are an arc. No flip: at `open` the picture must not be upside-down or rotated 90° (the long axis stays horizontal).
+3. **`stepsopaque`.** Same buttons and scans; nothing fades, the roof slides along the car and the walls slide out. Compare each state with `steps`.
+4. **`autosteps`.** Tap the carriage once (a tap that moves less than 20 px; a miss also counts). Log `auto start {sequence:[1,2,3,4]}`, then `auto step {n}` + `state=<n> rendered` about once per second, then `auto done`. Take a burst of screenshots for 8 s and count **distinct slot images** (expect up to 5: closed, then one per step) and when each appears relative to its `auto step` line. Tap again after `auto done`: it runs back (`sequence:[3,2,1,0]`). Taps during a run are ignored. CPU must be about 0-2% after `auto done` (no loop is left); `?v=cpu&of=autosteps` and `?v=cpu&of=steps` for the unmount drain.
+5. **Also:** run `steps&sync=0` once and compare the present delay per state with sync on.
+
+| # | Observation | Conclusion | Next |
+| --- | --- | --- | --- |
+| 31 | `steps`: every press produces a changed image within 5 s, roof/walls/camera as described | A discrete, event-driven peel is visible on the simulator: this is how the peel can be checked here | Build the real peel on event-driven renders, with the sync |
+| 32 | `steps` works with sync on but with `?sync=0` images are late or missing | The sync `getError()` is what makes a single frame present reliably | Keep a sync after every render in the real scene |
+| 33 | `steps` works equally with `sync=0` | A single `invalidate()` per change presents without the sync | The sync is only needed for streams; keep it off for a single frame |
+| 34 | `steps`: label reaches `rendered` but the image never changes | Render calls happen but frames are not presented (the `always`-loop failure also hits single frames after the first) | A present problem: try another sync (`finish`), a second invalidate, or judge on a device |
+| 35 | `steps`: label stays at `requested` | The `invalidate()` does not render (R3F demand state, hidden scene) | Check the render wrapper and `internal.active`; call `advance()` instead |
+| 36 | `steps` changes opacity (roof/walls fade) but `stepsopaque` looks the same apart from the fade | Opacity blending works; the fade is usable | Use the fade in the real peel |
+| 37 | `steps` shows no fade or wrong depth (walls pop or stay opaque) but `stepsopaque` is fine | Transparent materials do not blend correctly here | Peel by moving/scaling parts only (as the planner proposed) |
+| 38 | Both `steps` and `stepsopaque` fail to present a changed state | Not an opacity problem: presenting after the first frame is the limit | Treat the simulator as logic-and-picking only |
+| 39 | `open`: top-down shows six blue seats, long axis horizontal, stable; `closed` side-on | The camera arc with a rotating `up` works; no gimbal flip | Reuse the arc for the real overhead view |
+| 40 | `open` is upside-down, rotated, or blank | Camera `up`/arc handling fails on this stack | Offset the camera slightly from vertical and set `up` explicitly |
+| 41 | `autosteps` shows 4-5 distinct images at about 1 s intervals, then CPU ~0% | A coarse animation (one render + sync per ~1 s step) is visible on the simulator | On a device, drive the same keyframes closer together (e.g. 8-12 steps over 1.5 s) and judge smoothness there |
+| 42 | `autosteps` shows fewer distinct images than steps (some skipped or late) | Presenting lags the render; steps must be spaced further apart on the simulator (3-5 s) | Use a longer step interval for simulator checks; judge smoothness on a device |
+| 43 | CPU stays high after `auto done` or after the gate unmounts `steps`/`autosteps` | A single-frame path still leaks a loop or context | Do not enable in the app until fixed |
+| 44 | What the coarse animation needs on a device | From rows 41/42: the step interval at which every step presented on the simulator is the floor for software GL; on a device expect far smoother, so aim for 30-60 fps with `frameloop="demand"` driven by the app's own loop, and verify on hardware | — |
+
+### GL lab part 4: M3b spikes (observer script addendum)
+
+Decides what B3-B5 may rely on. Each variant from a freshly terminated app: `xcrun simctl openurl booted "trainapp://dev/gl?v=<id>"`. The lab slot is 320 × 180 pt (x 41-361, y from 72 on a 402 pt screen; screen point = slot point + (41, 72)). Wait up to 5 s for a first draw; after every tap wait up to 5 s before judging. Use taps that move less than 20 px. Capture every `[gl-lab]` line; the on-screen label under the slot shows the last event. `cpu` takes any of these with `?of=<id>`.
+
+**Tap tables (slot coordinates from `animation/projection.ts`, tolerance a few pt; verify on the first screenshot of each variant and report corrections).**
+- `hitbox` (hero camera): car 1 centre (137, 87), car 2 (209, 71), car 3 (255, 62), car 4 (286, 55); forms A, B, C, D in that order. The hit boxes are 10 × 7 × 3.6 units, larger than the cars (taller than the body), so also tap just above and below a car body (the orange D box is visible).
+- `hitboxside` (overview camera): cars 2-6 at slot x 64, 112, 160, 208, 256, y 91 (pitch 48 pt); forms A, B, C, D, A. Tap each centre, then a point above the body (y about 60) and below it (y about 125) inside the hit-box height.
+- `seats40` / `seats40basic` (car-local top-down view, row 1 on the left, column A on top): `1-A` (72, 38), `1-E` (72, 142), `2-A` (97, 38) reserved, `3-D` (122, 121) reserved, `4-C` (147, 81), `5-B` (173, 59), `7-E` (223, 142), `8-A` (248, 38), `8-E` (248, 142); row pitch about 25 pt, column pitch about 26 pt. Reserved seats (9): `1-A 1-B 2-C 3-D 3-E 4-A 6-C 8-B 2-A`.
+- `twolate` / `twosame`: the right half is the seats canvas (slot x 160-320); the same seat points shifted into it are not valid (the canvas is half as wide, the scene is rescaled): take seat positions from a screenshot of the right half.
+
+**S1 `hitbox` and `hitboxside`.** Tap each car centre once, wait, record the log lines. Expected for a working form: `touch raw start` (React Native got the touch), `touch pointerdown form=<F> car=<n>`, `hit form=<F> car=<n> click`, and the label `click: form F, car n`. A miss logs `touch miss (no object hit)`. Record per form A, B, C, D: click yes/no. Taps near the overlap of two boxes report the nearest one.
+
+| # | Observation | Conclusion | Decides for B3/B4 (decision 6 / amendment A4) |
+| --- | --- | --- | --- |
+| 45 | B (`material.visible=false`) clicks, A does not | Invisible-material hit boxes work; `visible={false}` meshes are not raycast | Use form B for `Hit_Car_n` (the default) |
+| 46 | A, B, C all click | Any invisible form works | Use B (no draw call, simplest) |
+| 47 | A clicks, B does not | `visible={false}` works, material-off does not | Use form A |
+| 48 | Only C and D click | Only a real (transparent or visible) mesh is raycast | Use form C (opacity 0, one draw call each, 8 cars) |
+| 49 | Only D clicks | Invisible hit boxes are not usable | Hit boxes must be visible (a faint tint) or use the car walls (about 25 pt tall, small) and rely on the chips |
+| 50 | None click but raw touches arrive | R3F dispatch broken in this scene (events, pointerEvents) | Re-check the canvas props before B3 |
+| 51 | D clicks on `hitbox` but a hit box over a far car is missed | Perspective makes far cars too small | Fine for the hero; the picker uses `hitboxside` numbers |
+| 52 | `hitboxside`: all five cars clickable at their centre and in the box's extra height | The overview with 80 pt cars is tappable | Keep the 5-car window; tap target about 48 × 55 pt in this slot (80 × 55 on the real 402 pt canvas) |
+
+**S3 `seats40`, `seats40basic`.** Wait for the first draw, then pixel-scan the slot: floor `(91,102,115)` (`trainFloor`), free seats white, reserved seats grey `(184,190,198)` with a dark `(74,85,96)` X, selected blue `(46,102,149)`. Count pixels of each colour: expect 31 free (white) squares and 9 reserved before any tap. Then tap `7-E`: expect `seat tap instanceId=<n> code=7-E select` where `n` is the row-major index (row 7, column E = (7-1) × 5 + 4 = 34), `seat selected 7-E`, one `render` log line, and that seat turns blue within 5 s (blue count 1 seat). Tap `5-B` (index 21) next: it turns blue and `7-E` returns to white (one render again). Tap `1-A` (reserved): `seat tap ... ignore`, no recolour. Tap between seats: `touch miss`. Report the unlit variant's exact colours and the lit variant's colours (the lit roof factor clips to white, so grey may brighten).
+
+| # | Observation | Conclusion | Decides for B5 |
+| --- | --- | --- | --- |
+| 53 | `instanceId` = (row-1) × 5 + column index for every tap; tint changes with one render | 40-instance picking and `setColorAt` work | Build `Seats.tsx` as planned (`codeAtInstance` from the layout array) |
+| 54 | Taps pick a wrong or neighbouring seat | Bounding sphere or matrix issue | Check `computeBoundingSphere()` after writes; compare with `pick` (12 instances) |
+| 55 | Colours change only after a second tap or after seconds | A render per change is not enough here | Add one more `invalidate()` or the sync `getError` for seat changes |
+| 56 | Free, reserved and selected are clearly different in both variants, the X is visible | The three states and the X cue are distinguishable top-down | Keep the colours and the X marks; choose lit or basic by the exact-colour result |
+| 57 | Lit variant: free and reserved look alike or selected shifts colour | Lambert brightening hides the states | Use basic (unlit) materials for seats |
+| 58 | The X bars are not visible (too thin) | Cue too weak at this scale | Make the bars thicker or add a corner mark |
+
+**S2 `twolate`, `twosame`.** Timeline from the `canvas A (hero) mount` log line: with `twolate` the hero (left) is drawn alone first; at 6 s the seats canvas mounts (right); at 16 s it unmounts (label `B unmounted`); at 22 s it remounts (label `B remounted`). With `twosame` both mount at 0 s. Take slot screenshots at about 3 s, 10 s, 19 s and 27 s. At 10 s tap two seats on the right canvas. Scan: hero colours on the left (sky, white body, grass), seats colours on the right. CPU (`top -pid`) at 3, 10, 19 and 27 s, and 5, 15 and 30 s after the `unmount (both)` (use `?v=cpu&of=twolate`).
+
+| # | Observation | Conclusion | Decides for B3 |
+| --- | --- | --- | --- |
+| 59 | Both canvases are drawn at 10 s, the right one picks, the left stays drawn; at 27 s the remounted canvas is drawn again | Two R3F canvases coexist, and a canvas can be recreated | Mount the picker canvas over the paused hero as planned |
+| 60 | The second canvas is drawn only in `twosame` or only in `twolate` | Creation order matters | Mount in the working order (usually the second late) |
+| 61 | The second canvas never presents while the hero is mounted | One presenting canvas at a time | Render the hero as the static image while the picker is on top (`active` already exists), mount the 3D picker only then |
+| 62 | The first (hero) canvas goes blank when the second mounts | The second context steals the surface | Same fallback as 61 |
+| 63 | CPU after unmounting both stays above about 1.2% (the known residue) or grows with each remount | Contexts leak or accumulate | Limit remounts (keep the seat canvas mounted while the picker is open); note the residue |
+| 64 | Picking on the right canvas works while the left exists | No cross-canvas event interference | Fine |
+
+**Not included here:** the peel with `onDone` keyframes (the runner has no `onDone` yet; it is a unit-tested change in B4) and a new overhead-camera spike (`seats40` already uses the interior camera with `up = (-1,0,0)`; check that row 1 is on the left and column A on top, which the unit test also asserts).
+
+### GL lab — coder
+
+- **Files (all marked `GL-LAB`, new files in their header):** `src/features/seat-map-3d/lab/variants.ts` (pure variant table, recipes, reducer), `lab/log.ts`, `lab/labR3f.tsx` (R3F canvas replica with per-variant config), `lab/labRaw.tsx` (raw `GLView` magenta and the R3F-free three variant), `lab/GlLabBody.tsx` (screen), `lab/GlLabScreen.tsx` (dev gate), `lab/__tests__/variants.test.ts`, `src/__tests__/gl-lab.test.tsx`, route `src/app/dev/gl.tsx`, and one marked line in `src/features/seat-map-3d/index.ts` (`export { GlLabScreen }`). No shipped screen changed; `HERO_3D_ENABLED` is still `false`; no dependency added; `eslint.config.js` untouched.
+- **Switching:** buttons remount a fresh variant each press (a reducer bumps `mount`, used as the React `key`); `?v=<id>` deep-links; `?of=<id>` picks the CPU-gate target. The GL modules are required lazily when a variant mounts, so the barrel and the idle lab never evaluate `three`.
+- **Each N-step is one change from the replica** (a test asserts exactly one differing setting per variant, and that `beside` differs only by the raw square). Added beyond the reviewer's list: `finish` (a sync `gl.finish()`), `nomsaa`, `cube`, `transp` (the Round 2 config), `rawgl` and `raw3` (R3F-free). Not added: the `Activity` hypothesis (the Round 3 run already showed visible meshes and effects), canvas `onLayout` size (every variant logs R3F `size`, buffer and the slot layout).
+- **Logging does not change what is seen:** the R3F wrapper only counts frames and traverses the scene (JS). GL sync calls (`getError`, `finish`) exist only in the variants named for them (and `cplus`, as in the diagnostic); every variant logs `glError` once, 12 s after mount, after the watch window.
+- **Checks (first version):** `pnpm check` green with the lab (30 suites / 136 tests, eslint 0/0, `tsc` 0, prettier clean). Mutations run for real, all killed: select without bumping `mount`; `demand` also changing the clear; the CPU target allowing `cpu`; accepting an unknown id; `cplus` losing its cube; `beside` losing the raw square. `pnpm install --frozen-lockfile` clean; `package.json` and the lockfile unchanged.
+- **Production-bundle check:** `CI=1 npx expo export --platform ios --no-bytecode` (production) has **0** occurrences of `gl-lab`, `glError@12s`, `GlLabBody` and of the variant summaries (1613 modules, 3.73 MB); the same export with `--dev` has them (1754 modules). So the `__DEV__` gate folds the lab out of production and the route renders `null`.
+- **Remove the lab (one command, from the repo root):** `rm -rf src/features/seat-map-3d/lab src/app/dev src/__tests__/gl-lab.test.tsx && sed -i '' '/GL-LAB/d' src/features/seat-map-3d/index.ts && grep -rn "GL-LAB" src` (the grep must print nothing), then `pnpm check`; delete this section by hand.
+- **Standing-check exceptions while the lab exists:** S3 (three imports) also hits `lab/labR3f.tsx` and `lab/labRaw.tsx`; S7 (hex literals) hits `lab/*` (lab-only colours).
+- **Risks:** nothing here ran on the simulator, so no variant is verified; the raw three renderer's fake canvas object is untested (it may throw, the screen then shows "variant threw or failed to load"); contexts from earlier variants may not be released, so re-run surprising results from a fresh launch; `gl={{ antialias: false }}` may remount the `GLView`; `cminus` cannot log frames (shipped code); the replica is a copy and could drift from `HeroScene`.
+
+- **Follow-up: frame-driver variants (added after the tester's first session).** Five new variants, all `frameloop="demand"`: `inv10` and `inv30` (a timer calls `invalidate()` at ~10 / ~30 fps through a `Driver` component, cleared on unmount; the placeholder train sways), `invsync` (`inv10` + the sync `getError()` after each render), `pick` (3 boxes + an `InstancedMesh` of 12; touches enabled, no `pointerEvents="none"`; logs `[gl-lab] pick instanceId=<n>`, tints the instance, and logs every R3F pointer event, the Canvas miss, and raw React Native touch start/end), `peel` (10 fps loop; a box carriage whose roof and walls lift/slide and fade over 1.5 s while the camera moves on an arc in the x-y plane from about 6° above side-on to top-down, with `camera.up` rotated along the arc so there is no gimbal flip; a tap or a miss toggles back). Every R3F variant now also logs `dtMs`/`avgDtMs`/`maxDtMs` (time between render calls, every 30th render; presented frames are only observable by screenshots). `cpu` accepts any of them with `?of=<id>`. Tests: pure throttle period (`intervalMs`), exactly-one-change relations (`inv10`/`inv30` vs `demand`, `invsync` vs `inv10`, `pick`/`peel` scene and touch settings), CPU target for every non-CPU id; 4 real mutations killed (`intervalMs` formula, `invsync` losing the sync, `inv30` at 10 fps, `pick` not pickable). `pnpm check` green: 30 suites / 141 tests. Production export: 0 occurrences of `gl-lab`, `pick instanceId`, `peel progress` (1613 modules, 3,728,933 bytes, identical to before these variants); the `--dev` export has them (1754 modules). `package.json`/lockfile unchanged.
+- **Follow-up risks:** `peel` and `pick` are untested on a device or the simulator (nothing ran): the Canvas-level `onPointerMissed` override via `set()` and the per-material opacity refs may not behave as designed; `pick`'s `instanceId` mapping is the open question itself; a tap that moves over 20 px is not a click in R3F native; `invsync`/`inv30` may starve the JS thread like the `always` loops (use a fresh launch per variant); `peel` is not the real train (box carriage, ~6 seats).
+
+- **Part 3 (after the tester's part 2): discrete peel states.** Fixed the lab bug: `peel stage open|closed` now logs once per transition (pure `stageTransition`, tested), not per frame. New variants on a shared carriage rig (`apply(p)` poses roof, walls, opacity and the camera arc with a rotating `camera.up`, with no frame loop needed): `steps` (demand, no timer; five RN buttons; each press poses the rig, calls `invalidate()` once, then after that render makes the sync `getError()` and logs `[gl-lab] state=<n> rendered p=<p> glError=<e>`; `?sync=0` skips the sync; an on-screen label shows requested/rendered), `autosteps` (one tap runs the states at 1 s per step, one render + sync each, then no loop is left; a second tap reverses; taps during a run are ignored), `stepsopaque` (`steps` with no opacity; the roof also slides off along the car so it does not hide the seats from above). A tiny bus (`labBus.ts`) connects the RN buttons to the R3F scene; a module-level hook runs a callback right after the next render. `cpu` accepts all of them via `?of=<id>`. Pure logic in `peel.ts`: `STEP_PROGRESS`, `autoSequence`, `stageTransition`, `stepProgress`. Tests: `peel.test.ts` and extended `variants.test.ts` (one-change relations, `resolveSync`); 6 real mutations killed (stage logged every frame, `autoSequence` direction, sync default off, `stepsopaque` keeping the fade, `steps` gaining a timer, `stepProgress` clamp). `pnpm check` green: 31 suites / 149 tests. Production export: 0 occurrences of `gl-lab`, `auto step`, ` rendered p=` (1613 modules, 3,728,940 bytes, a few bytes over before; dev export has them, 1756 modules); lockfile and `package.json` unchanged.
+- **Part 3 risks:** the pixel regions in the script are computed from the geometry, not measured; the `afterNextRender` callback runs only if `invalidate()` produces a render (a stall shows as the label staying at `requested`); the roof in `steps` only lifts and fades (it still sits above the car at `open` until opacity 0, which should be invisible, but depth-sorting of transparent parts is exactly what row 37 checks); `autosteps` taps must move under 20 px; nothing was run on the simulator.
+
+- **Part 4 (M3b spikes, after the M3a commits).** New files in `lab/` only: `spikes.ts` (pure: cameras, hit forms, 40 seats, tap helpers, two-canvas timeline), `labSpikes.tsx` (the scenes) and tests `spikes.test.ts` (+ extended `variants.test.ts`). Variants: `hitbox`, `hitboxside` (S1: four hit-box forms over cars, hero camera and the picker's side-on overview camera), `seats40`, `seats40basic` (S3: 40 instanced seats with `setColorAt`, `computeBoundingSphere()` after the matrix writes, one render per change, X marks on reserved seats, lit and unlit), `twolate`, `twosame` (S2: the real hero plus a seats canvas, second canvas mounts/unmounts/remounts on a timeline). `cpu` takes any via `?of=<id>`. `pnpm check` green (40 suites / 211 tests); 9 real mutations killed (hit-form cycle, reserved selectable, tap selects reserved, a reserved seat missing, interior `up` flipped, overview centre, row order, timeline order, `side` flag). Production export: 0 occurrences of `gplane`, `seats40`, `twolate`, `seat tap`, `[gl-lab]`; the `--dev` export finds them (2, 5, 2, 1, 3); production size unchanged (3,734,739 bytes). No dependency change. **Removal:** the existing one-liner removes everything (it deletes the whole `lab/` folder, `src/app/dev` and `gl-lab.test.tsx`); nothing outside `lab/` was added.
+- **Part 4 risks:** the hit-box scene's boxes are larger than the cars so taps near the overlap pick the nearest box; the `two*` seats canvas is half the slot wide so its seat positions differ from `seats40` (use screenshots); S1 form A relies on R3F raycasting a `visible={false}` mesh (the spike's question); nothing ran on the simulator.
+
+### GL lab — tester
+
+**Conclusion (one line): 3D pixels DO draw on this simulator, so the simulator and expo-gl are not the problem. What differs is how frames are driven: R3F with `frameloop="always"` and no GL sync presents nothing, while `frameloop="demand"` (one frame, CPU about 1%) or a sync `gl.getError()` after each render makes the real train appear. Nothing in `clear`, `transp`, `nomsaa`, `cube`, `finish` or `beside` mattered.** The drawing variants still barely animate (see below), so a moving train is not proven yet.
+
+**Environment**
+- Branch `feat/3d-train-peel`, HEAD `042f9b9`, the lab uncommitted. Simulator iPhone 17 Pro, iOS 26.5, light, text size `large` (restored to exactly that). Metro `npx expo start -c --port 8082`, stopped at the end; no native change. I edited nothing but this file.
+- **Method:** each variant was run from a freshly terminated app through `xcrun simctl openurl "trainapp://dev/gl?v=<id>"` (no iOS prompt appeared), so no variant could be affected by an earlier one. Screenshots at 2, 5 and 10 s after the `<id> mount` log line, pixel-scanned in the slot (x 123 to 1083, y 216 to 756 px at 3x; counts below are pixels, sampled every 2 px and scaled). CPU from `top -pid` (3 samples, 2 s apart, first bogus sample dropped). Scripts and per-variant shots are in the scratchpad (`gllab/`); one screenshot per variant is saved as `gl-<id>.png`.
+- Controls `cplus` and `cminus` were run first and again at the end of the session: identical results both times (no state leakage between fresh launches).
+- `xcrun simctl list runtimes`: **only iOS 26.5 (23F77)**. 42 iPhone device types exist, but no second runtime, so there is no other runtime to compare; no physical iPhone is connected. Nothing was installed.
+- Log: 0 `ERROR`, 0 `ADVICE`; warnings only `THREE.Clock` deprecated (once per R3F canvas), `EXT_color_buffer_float extension not supported` (once per first canvas), `WEBGL_lose_context extension not supported` (once). `LOG EXGL: gl.pixelStorei() doesn't support this parameter yet!` twice per canvas. No red or LogBox screen. No variant threw or showed "failed to load".
+
+**Per-variant result (fresh launch each; scan colours: green, red, magenta, sky = `(238,242,246)`, train body light grey, stripe `#2E6695`)**
+
+| id | Result | Pixels in the slot (t+10 s) | Evidence |
+| --- | --- | --- | --- |
+| `rawgl` | **DREW** | magenta 511,344 (whole slot) | `gl-rawgl.png`; logs `raw created {buffer [960,540]}`, `raw frame` 1, 60, 120, 180, `glError` 0 |
+| `raw3` | **DREW** | green 455,580, red 55,128 (the cube) | `gl-raw3.png`; `raw frame {visibleMeshes 1, calls 1}`, `glError@12s` 0. Plain three on expo-gl works, no R3F |
+| `cplus` | **DREW** | green 217,404, red 124,204, grey 125,800, stripe 256, magenta 28,224 | `gl-cplus.png`; appears at about 3 to 5 s (at 2 s only the magenta square) |
+| `cminus` | **DID NOT DRAW** | nothing (slot stays `#222222`, 511,344 px) | `gl-cminus.png`; logs only `mount`, `THREE.Clock`, EXGL, `EXT_color_buffer_float`; CPU about 100% |
+| `replica` | **DID NOT DRAW** | nothing | `gl-replica.png`; `frame` lines 1 to 660 (meshes 8, visible 8, buffer 960×540), CPU about 100% |
+| `demand` | **DREW** | sky 273,852, grey 213,792, stripe 352 (the real train) | `gl-demand.png`; `frame {n:1}` only; at 2 s nothing, from about 3.5 s on; CPU about 1% |
+| `beside` | **DID NOT DRAW** | magenta 28,224 only (the square), no train | `gl-beside.png`; the second GL context does not help |
+| `clear` | **DID NOT DRAW** | nothing | `gl-clear.png` |
+| `transp` | **DID NOT DRAW** | nothing | `gl-transp.png` |
+| `geterr` | **DREW** | sky 273,100, grey 214,372, stripe 440 (the real train) | `gl-geterr.png`; `getError after render` lines 1 to 3, glError 0; appears at about 3 to 5 s; CPU about 100% |
+| `finish` | **DID NOT DRAW** | nothing | `gl-finish.png` |
+| `nomsaa` | **DID NOT DRAW** | nothing | `gl-nomsaa.png` |
+| `cube` | **DID NOT DRAW** | nothing | `gl-cube.png` (red cube present in the scene: meshes 9, visible 9, still nothing on screen) |
+| `cpu` | CPU gate, see below | n/a | `gl-cpu-*-after12.png` |
+
+**Do the drawing variants animate? Barely.** Burst captures over 30 s (about 160 captures each): `geterr` 3 distinct slot images (changes at 3.1 s and 21.0 s), `cplus` 3 distinct (4.4 s and 26.0 s), `demand` 2 (one frame at 3.5 s, as designed). In the session, a second `cplus` check showed the cube pixels changing between 9 s and 17 s, so presents happen, but only every few seconds. JS logs about 60 frames in the first 10 to 15 s (a few frames per second), so frames are issued far faster than they appear.
+
+**CPU (`top -pid`, percent of one core; every sample)**
+
+| State | Samples | Note |
+| --- | --- | --- |
+| Lab idle (no GL), four fresh launches | 0.0 0.0 0.1 / 0.0 0.1 0.1 / 0.0 0.0 0.0 / 0.0 0.0 0.1 | about 0% |
+| `cplus` drawing (t+10 s) | 92.7 88.3 (also 100.1, 100.3, 99.8) | about 90 to 100% |
+| `cminus` / `replica` / `clear` / `transp` / `finish` / `nomsaa` / `cube` / `beside` / `geterr` (non-drawing or sparse, `always` loop) | 98 to 103 each (`beside` 100.3 99.0, `geterr` 101.1 98.2) | about 100%: every `always` canvas saturates a core |
+| `demand` (drew one frame) | 1.1 2.0 1.2 | about 1% |
+| `rawgl` / `raw3` | 0.8 1.0 1.4 / 1.1 1.2 1.7 | about 1% |
+| Gate `cpu` target `rawgl`, unmount at 10 s | +5 s 2.0, +12 s 1.8, +20 s 1.7, +30 s 1.6 | no leak, about 1.6% (the gate screen) |
+| Gate `cpu` target `cplus`, unmount at 10 s | +5 s 100.1, +12 s 100.0, +20 s 100.4, +30 s 12.1; second run +30 s 9.9, +40 s 1.8, +55 s 1.9, +75 s 1.7 | CPU stays at 100% for about 20 s **after** unmount, then drains to about 1.8% by +40 s: a backlog, not a permanent leak |
+| Gate `cpu` target `cminus` (shipped scene), unmount at 10 s | +5 s 103.0, +12 s 99.5, +20 s 100.4, +30 s 100.3, +40 s 100.4, +55 s 99.7, +75 s 98.1; still 99.6 and 100.5 about 2 minutes later | **never drains**: the open "100% CPU after Back" bug reproduces in the lab with the shipped `HeroScene` |
+| UI responsiveness | with `cplus` running, a tap on `stop` was not processed in over 2 minutes | JS thread starved by the loop, so switching variants by buttons is impractical while an `always` loop runs; hence the per-variant fresh launches |
+
+**Reading the result against the script's table (first matching row).** Row 1 no (`rawgl` draws), row 2 no (`rawgl` and `raw3` both draw), **row 3 yes**: `raw3` draws but `replica`/`cminus` do not, so the R3F layer's frame driving is the problem, not three or expo-gl. Row 4 no (`cplus` draws). **Row 5 yes** (`cplus` draws, `cminus` and `replica` do not): it reproduces in isolation, so the page context (ScrollView, hero container) was not the cause. Row 6 no (`replica` does not draw). Row 7 no. **Row 8 no** (`clear` does not draw: an explicit opaque `setClearColor` is not the fix). **Row 9 no** (`beside` does not draw: a second GL context is not it). **Row 10 yes** (`geterr` draws, `replica` does not): a GL sync after each render makes frames present (`finish` does not, so it is the `getError` call, not any sync). **Row 11 yes** (`demand` draws, `replica` does not): the continuous loop breaks presenting; a single frame works. Row 12 no (`nomsaa` does not draw). Row 13 no (`cube` does not draw). Row 14 not applicable (`transp`, `clear` and `replica` all draw nothing). **Row 15 mixed:** the CPU stays high after unmount for R3F variants but not for `rawgl`; for `cplus` it drains after about 20 s, for the shipped `cminus` it never drains.
+
+**Which single change made the difference.** Starting from the replica (draws nothing): changing **only `frameloop` to `"demand"`** makes the train appear and drops CPU from 100% to about 1%; adding **only a sync `gl.getError()` after each render** also makes it appear (but CPU stays about 100% and it presents only every few seconds). The positive control `cplus` draws because it carries a sync `getError` before the render (plus the raw square, red cube, opaque clear and probe, which the single-change variants show are not needed). So `cplus` has "a sync GL call each frame" that the others lack.
+
+**What this implies for the real 3D train (plainly).**
+1. The simulator can draw three.js 3D (raw three and R3F both did), so the real multi-carriage train and the peel can be built and checked here.
+2. Do **not** use R3F `frameloop="always"` on the simulator: it presents nothing and burns a full core, and after unmount the shipped scene keeps burning CPU (the "100% after Back" bug). Drive frames with `frameloop="demand"` and call `invalidate()` from your own throttled animation loop (a few fps first, then raise it while watching CPU), which the lab proved renders correctly at about 1% CPU for a single frame.
+3. Not proven: that a stream of `demand` frames (animation) keeps presenting and animates smoothly; the lab only drew one `demand` frame, and the sync-per-frame variants present only every few seconds. That needs one more run (invalidate at a fixed rate, count distinct images and CPU).
+4. A physical device is still needed to judge real frame rate; the simulator uses software GL (about 960×540 px buffer, 4 frames or fewer per second under load).
+
+**Counts:** 14 variants: DREW 5 (`rawgl`, `raw3`, `cplus`, `demand`, `geterr`), DID NOT DRAW 8 (`cminus`, `replica`, `beside`, `clear`, `transp`, `finish`, `nomsaa`, `cube`), CPU gate `cpu` run 3 times (targets `cplus`, `rawgl`, `cminus`), THREW 0, NOT TESTABLE 0.
+
+**Next action for the coder:** switch the real hero scene to `frameloop="demand"` driven by a throttled `invalidate()` loop and test one more lab variant (`demand` plus `invalidate()` at 10 fps) for distinct images over 30 s and CPU, then build the multi-carriage train on that driver.
+
+### GL lab part 2 — tester
+
+**Conclusion (one line): touch picking on an `InstancedMesh` WORKS under expo-gl (ids correct, misses and the 20 px rule behave), and the peel's logic runs and reverses, but on this simulator no frame driver gives a visible animation: `inv10` and `inv30` presented nothing in 30 s, `invsync` only 5 images (with render stalls up to 12 s), and the peel's roof/walls/camera were never seen on screen. Best candidate: event-driven `demand` frames (one render per change, with a sync), not a continuous `invalidate()` stream; the visual peel needs a device.**
+
+**Environment:** branch `feat/3d-train-peel`, same simulator (iPhone 17 Pro, iOS 26.5; restored to light, portrait, text size `large`), Metro `npx expo start -c --port 8082` (stopped at the end), no native change. Every variant ran from a freshly terminated app via `?v=<id>`. Slot scans, CPU method and scripts as in the first session (`gllab/` in the scratchpad); burst captures were about 5 per second. I edited nothing but this file (not `docs/3d-train-checklist.md`). 0 `ERROR`, 0 `ADVICE`; the usual THREE/EXGL warnings only.
+
+**Frame drivers (30 s each, fresh launch)**
+
+| Variant | Render calls seen from JS | Distinct slot images in 30 s | CPU while running (`top`, real samples) | Stop-button latency | Verdict |
+| --- | --- | --- | --- | --- | --- |
+| `inv10` | `dtMs` about 117, `avgDtMs` 112 to 115 (about 9 fps) | **1** (blank `#222222`, nothing ever drawn; also blank with sparse screenshots at 6, 12, 18, 24 and 30 s, so the burst did not cause it) | 65.5 / 67.0 / 58.8 (at 5, 15, 28 s); about 95 to 98% in the CPU gate | tap processed within the tool-call latency (under about 1 s) | FAIL: sways in JS, presents nothing |
+| `inv30` | `dtMs` 33 to 34 (about 29 fps), `maxDtMs` 92 | **1** (blank; also blank at 6 to 30 s sparse) | 69.6 / 64.2 / 67.5; about 97% in the gate | under about 1 s | FAIL: presents nothing, and its CPU never drains (see below) |
+| `invsync` | `dtMs` 3,279 and 567 for the first renders, then 117; `maxDtMs` up to **12,133** at n=60 (stalls) | **5** (changes at 3.5, 4.1, 4.7 and 19.9 s; the train is visible: sky 277,748, grey 210,020, stripe 412 px) | 66.0 / 64.0 / 65.9; about 96 to 98% in the gate | under about 1 s | The only driver that presents at all, but not smoothly |
+
+For comparison: plain `demand` (one frame) drew the train at about 3.5 s with CPU about 1%; `geterr`/`cplus` (`always` loop plus sync) gave 3 distinct images in 30 s. So a stream of `invalidate()` calls does not produce steady frames here.
+
+**CPU after unmount (gate `?v=cpu&of=<id>`, unmount at 10 s; CPU % of one core, second sample of each pair)**
+
+| Target | +5 s | +12 s | +20 s | +30 s | +40 s | +55 s | +75 s | Reading |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `inv10` | 94.9 | 98.5 | 97.4 | 98.0 | 92.0 | 1.4 | 1.5 | high until about 30 to 45 s after unmount, then drains (a backlog, row 21 not triggered) |
+| `inv30` | 98.9 | 96.6 | 97.0 | 96.7 | 99.8 | 96.1 | 99.2 | **never drains** (row 21 triggered): the 30 fps loop leaks like `cminus` |
+| `invsync` | 95.9 | 98.5 | 1.8 | 1.3 | 1.4 | 1.9 | 1.8 | drains within about 10 s of unmount (the sync lets the queue empty) |
+| `peel` | 100.4 | 99.8 | 98.5 | 100.1 | 1.4 | 1.5 | 2.0 | high until about 30 s after unmount, then drains |
+
+**Which driver is the best candidate and why.** None gives a steady animation on the simulator. `invsync` is the best of the three: it is the only one that presents anything, and the only demand-driven loop whose CPU recovers within seconds of unmount; but it stalls (12 s) and shows 5 images in 30 s. `inv30` is the worst (blank and a CPU leak). For the real train, prefer **event-driven `demand` frames** (render when something changes, like the plain `demand` variant, which drew at about 1% CPU) with a sync after the render, and judge smoothness on a physical device; do not rely on a 10 or 30 fps `invalidate()` timer on the simulator. Presented rate was not verified above 0.2 images per second here.
+
+**`pick` (fresh launch; scene: 3 blue boxes on top, 12 white instances in a 4×3 grid below; slot x 41 to 361, y 72 to 252; instances at screen x about 141, 181, 221, 260 and y about 180, 208, 236; row-major ids 0 to 3, 4 to 7, 8 to 11)**
+
+| Tap (screen pt) | Expected | Logged | Tint |
+| --- | --- | --- | --- |
+| (181, 180) instance row 0, col 1 | id 1 | `touch pointerdown instanceId=1`, `touch raw start x=140 y=108`, `touch pointerup instanceId=1`, `pick instanceId=1`, `touch raw end` | instance 1 turned orange (`gl2-pick-tap-i1-later2.png`, seen after a late present) |
+| (221, 208) row 1, col 2 | id 6 | same pattern, `instanceId=6`, raw `x=180 y=136` | orange on 6 (seen about 0.7 s after polling began) |
+| (260, 236) row 2, col 3 | id 11 | same pattern, `instanceId=11`, raw `x=219 y=164` | orange on 11 |
+| (147, 107) first box | box 0 | `touch pointerdown box=0`, `touch raw start x=106 y=35`, `pick box=0`, `touch raw end` (no `pointerup` line for boxes) | none (boxes are not tinted) |
+| (161, 194) gap between instances | miss | `touch raw start x=120 y=122`, `touch miss (no object hit)`, `touch raw end` | none |
+| (65, 150) empty canvas | miss | `touch raw start x=24 y=78`, `touch miss (no object hit)`, `touch raw end` | none |
+| 40 px swipe from (221,180) to (261,180) (moves more than 20 px) | no click | `touch pointerdown instanceId=2`, `touch raw start x=180 y=108`, `touch pointerup instanceId=3`, `touch raw end`; **no `pick` line** | no tint (orange pixel count unchanged at 21,776) |
+
+- **`instanceId` equals the row-major grid index in all three instance taps (1, 6, 11)**, the raw touch coordinates equal the tap position minus the slot origin, and the hit tinted exactly that instance. **Picking on an `InstancedMesh` works under expo-gl: yes.** Hit events: pointerdown, pointerup, `pick` (click); miss: only the Canvas miss line; a drag over 20 px is dropped as a click (down and up fire on different ids, no `pick`). The earlier tint persists (instances 1, 6 and 11 stayed orange).
+- Latency: the tint showed 0.4 to 0.9 s after a polling screenshot began (the first one only showed after a longer wait because a late frame presented; later taps were quick). The lab CPU idle on `pick` was 1.0, 1.6, 1.5 %.
+- Not tested: an instance that is only partly visible in the slot edge, and a tap on the sub-pixel border between cells beyond the one gap tap (which missed correctly).
+
+**`peel` (fresh launch; box carriage with seats inside; a 10 fps loop, as `inv10`)**
+- **Visible stages: NOT TESTABLE.** The slot stayed blank for about 40 s, then showed only the closed side-on carriage (a grey wall, sky `270,028` px, grey `241,316` px) and **never changed again**: not after the tap, not for 70 s of burst captures (1 distinct image), and not for another 150 s of polling. `gl2-peel-initial.png`, `gl2-peel-idle-5.png`, `gl2-peel-after-tap1.png`, `gl2-peel-after-tap2.png`.
+- **Logs show the animation ran and reversed:** `peel tap {via:"carriage", target:1}` then `peel progress` `p 0.31 / opacity 0.69 / cameraDeg 32.1 / roofY 0.62`, `p 0.53 / 0.47 / 50.8 / 1.07`, `p 0.77 / 0.23 / 70.4 / 1.53`, then `peel stage {stage:"open", p:1}`. The second tap logged `peel tap {via:"carriage", target:0}` (so a tap on the carriage still toggles once opened), then `p 0.69, 0.46, 0.22` (camera 63.9, 44.3, 24.7 degrees, roofY 1.38, 0.91, 0.44) and `peel stage {stage:"closed", p:0}`. The progress values are consistent with a 1.5 s ease. The wall-clock duration was not measured (log lines have no timestamps).
+- **Bug in the lab log:** `peel stage {stage:"open", p:1}` was logged on every frame after completion (296 lines in about 2 minutes) instead of once.
+- **Render stalls:** `maxDtMs` grew to 45,717 ms (a 45 s gap between renders), `avgDtMs` 156 to 195 in the first minute; CPU 97 to 100% while the loop ran, 1.4% after unmount.
+- Roof lift, wall slide, wall fade (transparent or pop), top-down orientation, gimbal flip and whether the interior is visible from above: **NOT TESTABLE**, because no changed frame was ever presented. Rows 26 to 28 cannot be judged; the picture matches row 29 (and worse: no jumps at all). The picking part of row 30 passed: the tap in the opened state toggled back (per the log).
+
+**Items (PASS = observed on the simulator; NT = NOT TESTABLE)**
+
+| # | Item | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | `inv10` presents steady frames over 30 s | FAIL | 1 distinct image, blank; render calls at about 9 fps |
+| 2 | `inv30` presents steady frames over 30 s | FAIL | 1 distinct image, blank |
+| 3 | `invsync` presents steady frames over 30 s | FAIL | 5 images, last change at 19.9 s; stalls up to 12 s |
+| 4 | `inv10` CPU low while running | FAIL | about 60 to 98% |
+| 5 | CPU drains after unmount: `inv10`, `invsync`, `peel` | PASS | all reach about 1 to 2% (after about 30 to 45 s, 10 s, 30 s) |
+| 6 | CPU drains after unmount: `inv30` | FAIL | 96 to 99% through +75 s |
+| 7 | Lab buttons stay responsive while a demand driver runs (`stop` latency) | PASS | processed under about 1 s for `inv10`, `inv30`, `invsync` (the tool latency bounds the measurement) |
+| 8 | `pick`: raw touches reach the slot | PASS | `touch raw start/end` on every tap with the right local coordinates |
+| 9 | `pick`: `instanceId` correct on three instance taps | PASS | 1, 6, 11 |
+| 10 | `pick`: hit tints the instance | PASS | orange on 1, 6, 11 |
+| 11 | `pick`: box hit, gap miss, empty miss | PASS | `pick box=0`; two `touch miss` lines |
+| 12 | `pick`: a tap that moves more than 20 px is not a click | PASS | down on 2, up on 3, no `pick`, no tint |
+| 13 | `peel`: tap on the carriage starts the peel (logic) | PASS | `peel tap via carriage`, progress to `open` |
+| 14 | `peel`: second tap reverses | PASS | `peel tap target 0`, progress back to `closed` (per the log) |
+| 15 | `peel`: roof lifts, walls slide and fade, camera arcs to top-down | NT | no changed frame was ever presented (screen unchanged for over 4 minutes) |
+| 16 | `peel`: stable top-down orientation, interior visible from above | NT | same |
+| 17 | `peel`: total time | NT | no timestamps in the log; the 1.5 s ease is only inferred from three progress samples |
+
+**Counts (counted by script from the items table, 17 rows):** PASS 9, FAIL 5 (rows 1 to 4 and 6), NOT TESTABLE 3 (rows 15 to 17).
+
+**Next action for the coder:** treat the simulator as a logic-and-picking environment, not an animation one: build the multi-carriage train and peel on event-driven `demand` frames (render once per change, with a sync call) and use the real picking (`instanceId` is reliable); verify smooth animation and the peel's look on a physical device. If a visual simulator check is still wanted, add a lab variant that renders a handful of discrete peel states (invalidate once per state, wait for the present) and screenshot each; fix the repeated `peel stage` log while there.
+
+### GL lab part 3 — tester
+
+**Conclusion (one line): YES, the simulator shows the peel as a sequence of discrete states. Every pressed state was presented within the first poll (about 0.2 s), 22 of 22 presses across `steps` (14), `steps&sync=0` (4) and `stepsopaque` (4), with identical images on every repeat; the fade is a real transparent blend (no pop), the camera arcs from side-on to a stable top-down view with six seats and the long axis horizontal, and `autosteps` plays the sequence as 5 distinct images at about 1 s steps and leaves no loop behind (CPU about 1%).** Matches rows 31, 33, 36, 39, 41.
+
+**Environment:** branch `feat/3d-train-peel`, HEAD `042f9b9`, same simulator (iPhone 17 Pro, iOS 26.5; restored to light, portrait, text size `large`), Metro `npx expo start -c --port 8082` (stopped at the end), no native change. Each variant ran from a freshly terminated app via `?v=<id>`; this run was resumed after an API error and nothing from the first attempt had been recorded, so everything below was run in the resumed session. 0 `ERROR`, 0 `ADVICE`. Only this file was edited (not `docs/3d-train-checklist.md`). Scripts and shots (`gl3-*.png`, scan region x 123 to 1083, y 216 to 756 px at 3x) are in the scratchpad.
+
+**Reference regions, measured against the script's estimates.** Estimates were slot x 25 to 295 (screen x 66 to 336), 74 pt tall, y about 125 to 200, seats about 17 pt wide. Measured at `closed`: the carriage's grey bounding box is **screen x 45 to 356 (311 pt wide), y 123 to 210 (87 pt tall)** (wider and taller than estimated, because the near wall is closer to the camera: perspective), so the estimate drifted by about +42 pt in width and +13 pt in height. At `open`: **six seat blobs**, centres (136,143), (201,143), (264,143), (136,181), (201,181), (264,181), widths 15 to 19 pt (estimate 17): 2 rows × 3, long axis horizontal, seat bounding box x 128 to 273, y 135 to 189. The label under the slot reads `state <n> (<name>) rendered · sync on` (it also repeats `sync on` once).
+
+**`steps` (sync on), first pass up then back down; "presented" = the slot image changed within the 15 s poll (it changed at the first poll, 0.2 s, every time). Pixel counts in the slot (sampled, px):**
+
+| State | Presented after press | Label | Log | Sky | Grey (car, walls, roof, floor) | Seat blue `#2e6695` | What the picture shows |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 closed (on mount) | yes, on mount | `rendered` | `state=0 rendered p=0 glError=0` | 270,028 | 241,316 | 0 | side-on grey carriage, seats hidden; camera horizon-level |
+| 1, 25% | 0.2 s | `rendered` | `state=1 ... p=0.25 glError=0` | 165,100 | 323,580 | 0 (seats are pale, seen through the fading walls) | roof lifted and ghosted, camera starting to arc, six pale seats visible through the faded walls |
+| 2, 50% | 0.2 s | `rendered` | `state=2 ... p=0.5 glError=0` | 159,448 | 328,056 | 10,516 | camera higher, walls and roof strongly transparent, seats clearly blue |
+| 3, 75% | 0.2 s | `rendered` | `state=3 ... p=0.75 glError=0` | 102,908 | 388,188 | 9,520 | near top-down, floor plate and seats, ghost walls at the edges |
+| 4, open | 0.2 s | `rendered` | `state=4 ... p=1 glError=0` | 350,744 | 144,004 | 14,288 | straight top-down, floor plate, six seats in 2 rows × 3, wall strips faint at the slot edges, roof gone |
+
+Composite views: `gl3-steps-s0/s25/s50/s75/s100.png` (and `gl3-stepsopaque-*`). Going back (open to 75%, 50%, 25%, closed) presented every state again (`steps-r75/r50/r25/r0`) with the same pixel counts as the way up. **Fade: it looks transparent, not popped** (opacities 0.69, 0.47, 0.23 in the earlier peel log; here the pale seats at 25% and the stepwise fading walls are visible), and the seats show through the walls correctly (no wrong sorting seen). **Camera: the view is side-on at closed and straight top-down at open, long axis horizontal, not flipped, not rotated 90°, stable.**
+
+**Reliability: each state was pressed 3 times (up, down, and out of order: closed→open, 75, 25, 50, closed, open) and presented every time at the first poll; the 10 repeat pairs I compared are pixel-identical** (25, 50, 75 and closed 3×, open 3×). Presenting is reliable here, not intermittent. CPU idle on `steps` after the presses: 1.0, 0.9, 0.7 %.
+
+**`steps&sync=0`:** 4 of 4 presses (25%, open, 50%, closed) presented at 0.2 s with the same pixel counts as sync on; the log line shows `glError=sync off` and the state-0 render on mount also presented. So a single `invalidate()` per change presents without the sync (row 33, not 32).
+
+**`stepsopaque` (fresh launch, sync on):** presses 25, 50, 75, open each presented at 0.2 s (`glError=0`). Counts: 25% sky 176,540 / grey 334,804 / stripe 0 (opaque walls hide the seats); 50% sky 195,292 / grey 298,592 / stripe 10,516 (the roof has slid off to the left and the walls out, seats visible); 75% stripe 18,144; open stripe 14,288 (same six seats as `steps`, the roof gone, a wall strip at the bottom edge). Compared with `steps`: the same geometry and camera, but nothing is see-through (the seats are hidden until the walls have moved), which confirms that the fade in `steps` is real blending (row 36).
+
+**`autosteps` (fresh launch):** one tap on the carriage logged `touch raw start x=160 y=90`, `auto start {via:carriage, sequence:[1,2,3,4]}`, then `auto step` plus `state=<n> rendered ... glError=0` for 1 (25%), 2 (50%), 3 (75%), 4 (open) and `auto done`. A 20 s burst (about 5 captures per second) saved **5 distinct slot images, appearing at 0.2, 2.5, 3.8, 4.6 and 6.1 s after the burst began**, i.e. closed then each step about 0.8 to 1.5 s apart (the initial closed image, then 25%, 50%, 75%, open: sky/grey/stripe counts 271,881/240,417/0; 166,626/322,902/0; 159,993/328,653/10,962; 103,977/388,026/9,702; 352,647/143,226/14,229). The run stops by itself: after `auto done` there is no further log, and CPU is **1.0, 0.9, 1.0 %**. A second tap reverses: `auto start {sequence:[3,2,1,0]}`, steps 75, 50, 25, closed, `auto done`, again 5 distinct images (0.4, 2.5, 3.8, 4.6, 5.9 s), CPU afterwards **0.7, 1.1, 0.9 %**. **Taps during a run are ignored:** I tapped the carriage a second time while the reverse run was starting; the log shows only one `auto start` and no second run (only one raw touch line was logged, so the extra tap may also have been dropped before the logger; either way no restart or overlap happened).
+
+**CPU (`top -pid`, percent of one core)**
+
+| State | Samples | Reading |
+| --- | --- | --- |
+| Lab idle, no GL (before each gate) | 0.1 0.1 0.1 | about 0% |
+| `steps` idle after presses | 1.0 0.9 0.7 | about 1% |
+| `autosteps` after a run | 1.0 0.9 1.0, 0.7 1.1 0.9 | about 1%, no loop left |
+| Gate `cpu&of=steps` (second samples at +5, 12, 20, 30, 40, 55, 75 s; unmount at 10 s) | 2.6, 1.0, 1.0, 0.9, 1.0, 1.0, 0.9 | stays about 1% before and after unmount (drains, nothing to drain) |
+| Gate `cpu&of=autosteps` (same schedule) | 2.6, 0.9, 1.1, 0.9, 1.1, 1.2, 1.0 | about 1% throughout |
+
+Row 43 does not apply: the single-frame path leaves nothing running.
+
+**Reading against the script's table:** row 31 yes (every press changed the image within 5 s; roof, walls, camera as described, apart from the size drift above), row 33 yes (works equally with `sync=0`), row 36 yes (`steps` fades and `stepsopaque` is the same without the fade: blending works), row 39 yes (six blue seats, long axis horizontal, stable, side-on at closed), row 41 yes (5 distinct images at about 1 s steps, then CPU about 1%). Rows 32, 34, 35, 37, 38, 40, 42, 43 do not apply.
+
+**Items (PASS = observed on the simulator)**
+
+| # | Item | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | `steps`: each of the five states presented after a press | PASS | all at 0.2 s, label `rendered`, `glError=0` |
+| 2 | `steps`: back down and out-of-order presses | PASS | `steps-r*` and `steps-o-*` images pixel-identical to the first pass |
+| 3 | `steps`: each state repeated 3 times, always presented | PASS | 10 identical repeat pairs |
+| 4 | `steps`: roof lifts, walls slide, six seats visible at open | PASS | six blobs 15 to 19 pt, 2×3 |
+| 5 | `steps`: the fade is a real transparent blend (no pop, correct depth) | PASS | pale seats through walls at 25%, ghost walls at 50 and 75% |
+| 6 | Camera side-on to top-down, no flip, long axis horizontal | PASS | closed vs open images |
+| 7 | `steps&sync=0` presents as reliably as sync on | PASS | 4 of 4 at 0.2 s |
+| 8 | `stepsopaque` presents and differs only by the fade/roof slide | PASS | 4 of 4 states, counts above |
+| 9 | `autosteps`: one tap runs 4 steps with 5 distinct images, then stops | PASS | burst, `auto done` |
+| 10 | `autosteps`: second tap reverses; taps during a run ignored | PASS | `sequence:[3,2,1,0]`; one start only |
+| 11 | CPU about 0 to 2% after `autosteps` and `steps`, and after the gates | PASS | all samples 0.7 to 2.6 % |
+| 12 | Script's pixel regions match the geometry | FAIL | closed carriage 311×87 pt, not 269×74 (drift +42/+13 pt); seat size matches |
+| 13 | Other warnings or errors | PASS | 0 `ERROR`, 0 `ADVICE` |
+
+**Counts (counted from the items table, 13 rows):** PASS 12, FAIL 1 (row 12, a documentation drift in the estimated region, not an app defect), NOT TESTABLE 0.
+
+**Can the simulator show a peel as a sequence of discrete states? Yes.** One `invalidate()` per state (no timer, no stream), rendered with or without a sync, is presented at once and reliably, and the images show the full peel look. A coarse animation on this simulator therefore has to be: a fixed number of keyframes, each one render, spaced about 1 s apart (that spacing presented every step at the first poll; shorter spacing was not tried here), with no continuous loop. **On a device** the same keyframes can run much closer together: render once per frame from the app's own timer with `frameloop="demand"` and `invalidate()` per tick, aiming for 8 to 12 steps over about 1.5 s first, then 30 to 60 fps, and check on hardware (the simulator's software GL cannot judge smoothness, and part 2 showed a continuous 10 or 30 fps stream did not present here).
+
+**Next action for the coder:** build the real peel on this pattern (poses set per state, one `invalidate()`, optional sync, no loop), use the `autosteps` keyframe runner for the simulator check, and correct the script's carriage size estimate (311×87 pt closed at the slot's scale); keep the lab until a device run confirms the smooth version.
+
+### GL lab part 4 — tester
+
+**Conclusion (one line): every hit-box form clicks under expo-gl, including `visible={false}` (form A), so use the cheapest invisible one; 40-instance seat picking maps every tap to the right `instanceId` and a colour change presents in under 0.5 s; and two R3F canvases coexist, the late one presents, picks and can be remounted, while the hero canvas never blanks.**
+
+**Environment:** branch `feat/3d-train-peel`, uncommitted lab, same simulator (iPhone 17 Pro, iOS 26.5; restored to light, portrait, text size `large`), Metro `npx expo start -c --port 8082` (stopped at the end), no native change. Each variant from a freshly terminated app via `?v=<id>`. Slot = 320×180 pt, screen point = slot point + (41, 72). Only this file was edited (not `docs/3d-train-checklist.md`). 0 `ERROR`, 0 `ADVICE`; the only warning was `THREE.Clock` deprecated (22 times). `gl4-*.png` shots are in the scratchpad.
+
+**S1 `hitbox` (hero camera) and `hitboxside` (overview camera)**
+
+| Tap (slot point) | Form | Logged | Result |
+| --- | --- | --- | --- |
+| `hitbox` car 1 (137, 87) | A `visible={false}` | `pointerdown form=A car=1`, `touch raw start x=137 y=87`, `pointerup`, `hit form=A car=1 click` | **click** |
+| car 2 (209, 71) | B `material.visible=false` | `form=B car=2 ... click` | **click** |
+| car 3 (255, 62) | C opacity 0 | `form=C car=3 ... click` | **click** |
+| car 4 (286, 55) | D visible control | `form=D car=4 ... click` | **click** |
+| above car 1 (137, 48) | A | `hit form=A car=1 click` | click (inside the taller hit box) |
+| below car 1 (137, 143) | n/a | `touch miss (no object hit)` | miss (outside the box) |
+| empty sky (29, 38) | n/a | `touch miss` | miss |
+| `hitboxside` cars 2 to 6 at x 64, 112, 160, 208, 256, y 91 | A, B, C, D, A | each `hit form=<F> car=<n> click` | **all five click** |
+| above car 4 (160, 60), at y 73, below (160, 125) | C | `touch miss` | miss: the hit box is only about 33 pt tall |
+| inside the extra height (160, 78) and (160, 104) | C | `hit form=C car=4 click` both | click |
+
+- The tap tables were exact: every `touch raw start` equals the planned slot point. **Drift:** in `hitboxside` the visible D box measures **x 185 to 233 (48 pt wide) and y 75 to 108 (33 pt tall)**, not 55 pt tall as the script assumed, so the usable tap target is about 48 × 33 pt in this slot (about 80 × 33 pt on a 402 pt canvas); taps above y 75 or below y 108 miss. Tap near the box centre.
+- **Result: rows 46 (and 45 does not apply).** All forms click, so `visible={false}` meshes ARE raycast on this stack. For B3/B4 use **form A or B (`visible={false}` or `material.visible=false`)**, with no draw call; form B is the safer default (it is the amendment's default and also works). Size the hit box taller than the car if a bigger tap target is wanted (33 pt is small).
+- CPU `hitbox` idle after the taps 1.0, 1.7, 1.7 %.
+
+**S3 `seats40` (lit) and `seats40basic` (unlit): top-down interior, 8 columns (rows 1 to 8, row 1 on the left) × 5 rows (column A on top, aisle between C and D)**
+
+| Tap (slot point) | Expected id | Logged `instanceId` | Behaviour |
+| --- | --- | --- | --- |
+| 7-E (223, 142) | 34 | **34** | `seat tap ... code=7-E select`, one `render`, blue within 0.5 s |
+| 5-B (173, 59) | 21 | **21** | 5-B blue, 7-E white again (one blue seat only) |
+| 1-A (72, 38) reserved | 0 | **0** | `... code=1-A ignore`, no recolour |
+| 1-E (72, 142) corner | 4 | **4** | blue at (72,142), x 63 to 81 |
+| 8-A (248, 38) corner | 35 | **35** | blue at (246,39) |
+| 8-E (248, 142) corner | 39 | **39** | blue at (246,142) |
+| 3-D (122, 121) reserved | 13 | **13** | `ignore` |
+| 4-C (147, 81) | 17 | **17** | blue at (147,81) |
+| between seats (84, 100) | miss | no instance | `touch miss (no object hit)` |
+
+- `instanceId` equals (row-1) × 5 + column index for all 8 taps, including all four corners and edges; the right seat turns blue each time and the previous one returns to white (the selected seat is the single blue block, 2,916 to 3,860 px). The colour change was visible at the first poll (0.3 to 0.5 s) after one render each time, so **row 53 holds; rows 54 and 55 do not apply**. `seats40basic` repeated 7-E (34) and 5-B (21) identically.
+- Initial scan (before taps) shows 9 grey cells with a dark X exactly at the reserved list `1-A 1-B 2-C 3-D 3-E 4-A 6-C 8-B 2-A`, 31 white cells; row 1 is on the left and column A on top, as designed (checked in `gl4-seats40-initial.png`).
+- **Exact colours.** Unlit (`seats40basic`): floor `(91,102,115)` (= `trainFloor`), free **`(255,255,255)`**, reserved **`(184,190,198)`** (exact token), X **`(74,85,96)`**, selected **`(46,102,149)`** (exact `#2E6695`). Lit (`seats40`): floor `(99,111,124)` (brighter than the token), free `(255,255,255)` (clips), reserved top `(199,205,214)` (brighter than the token, side faces `(178,178,178)`/`(233,233,233)`), X `(74,85,96)`, selected **`(50,111,161)`** (shifted from the token). Both are clearly distinguishable top-down (white / grey with X / blue); the lit variant adds soft side shading (depth cue) but shifts the token colours; the unlit one is flat but exact.
+- **Decides for B5:** build `Seats.tsx` as planned (instanced, `codeAtInstance` from the layout array, `computeBoundingSphere()` after the matrix writes works, `setColorAt` presents after one render). Choose **unlit (basic) materials** if exact token colours matter (selected is exactly `#2E6695`), or lit for a bit of depth; the three states and the X cue are legible either way (the X bars are clearly visible, row 58 does not apply). CPU `seats40` idle 1.5, 1.7, 1.9 %.
+
+**S2 `twosame` and `twolate`: the hero canvas on the left, the seats canvas on the right (each half 160 pt)**
+
+| Moment | `twosame` (both at 0 s) | `twolate` (seats mount at 6 s, unmount at 16 s, remount at 22 s) |
+| --- | --- | --- |
+| 3 s | both drawn: hero (grass 138,248 px, white 44,044 px) and seats (one blue seat after my tap, 3,236 px) | hero drawn alone, right half empty `#222` (as designed) |
+| 10 s | both drawn, same counts | **both drawn**: hero unchanged (grass 131,820, white 44,044), seats drawn |
+| 19 s | right canvas gone (label `B unmounted`), **hero still drawn, identical** | same |
+| 27 s | right canvas remounted and drawn again (fresh: selection reset, 0 blue), hero identical | same |
+
+- The hero canvas was never blank or changed in any frame, whichever order the canvases mounted. The second context presented in both orders, and recreating it (unmount then remount) worked. The hero's picture is rescaled to half width in these variants, which is a lab layout, not a defect.
+- **Picking on the seats canvas works:** `twosame` at about 8 s: `instanceId=10` (3-A) then `instanceId=21` (5-B), logs `seat tap ... select`, raw coordinates local to the right canvas (`x=42 y=38`, `x=92 y=60`), one blue seat. `twolate`: a tap at about 12 s (canvas B mounted) logged `instanceId=10`, `seat selected 3-A`; after the remount at 22 s a tap logged `instanceId=10` again and the blue seat showed (3,232 px). Two other `twolate` runs with taps at the wrong moments (before B mounted or while it was unmounted, because of the tool-call timing) logged no events at all, which is expected, not a failure; the two repeats above were timed correctly. No interference between the canvases' events was seen (the hero has no picking).
+- **Rows 59 and 64 hold; rows 60, 61, 62 do not apply** (the second canvas presented in both orders; the first never went blank).
+- **CPU (`top -pid`):** `twosame` 1.1 (3 s), 1.1 (10 s), 10.4 (19 s, during the unmount), 1.0 (27 s); `twolate` 31.3 (3 s, first hero draw), 1.5 (10 s), 9.6 (19 s), 1.5 (27 s); the first-draw and unmount spikes are short. Gate `cpu&of=twolate` (unmount at 10 s): +5 s 3.0, +12 s 1.3, +20 s 1.3, +30 s 1.3, +40 s 1.3, +55 s 1.2, +75 s 1.2 %; gate `cpu&of=seats40`: 2.1, 1.5, 1.3, 1.4, 1.5, 1.4, 1.7 %. **Row 63:** the CPU after unmount stays at about 1.2 to 1.7% (the known residue, a little above 1% with two contexts) and did not grow from the first to the second mount.
+- **Decides for B3:** a second R3F canvas can be mounted next to or over the hero canvas, it presents, it picks, it can be unmounted and recreated; no need to swap the hero for a static image while the picker canvas is up (row 59 holds). Keep remounts few anyway (each GL context leaves the known 1% residue).
+
+**Items (PASS = observed on the simulator)**
+
+| # | Item | Status | Evidence |
+| --- | --- | --- | --- |
+| 1 | Form A (`visible={false}`) hit box clicks | PASS | `hit form=A car=1 click` |
+| 2 | Forms B, C, D click | PASS | cars 2 to 4 |
+| 3 | `hitboxside`: five cars clickable at their centre | PASS | cars 2 to 6 |
+| 4 | Hit box extra height as predicted (about 55 pt) | FAIL | measured 33 pt tall, 48 wide; misses at y 60, 73, 125 |
+| 5 | Taps outside a box log a miss | PASS | `touch miss` |
+| 6 | `seats40`: `instanceId` correct for 8 taps incl. corners and edges | PASS | 34, 21, 0, 4, 35, 39, 13, 17 |
+| 7 | Colour change presents after one render | PASS | blue seen within 0.3 to 0.5 s each time |
+| 8 | Free, reserved (with X) and selected distinguishable top-down | PASS | white / grey with X / blue in both variants |
+| 9 | Exact colours (unlit) | PASS | `(255,255,255)`, `(184,190,198)`, `(74,85,96)`, `(46,102,149)` |
+| 10 | Lit variant keeps token colours | FAIL | selected `(50,111,161)`, reserved `(199,205,214)`, floor `(99,111,124)`: shifted |
+| 11 | Reserved seat tap is ignored; gap tap is a miss | PASS | `ignore`, `touch miss` |
+| 12 | Two canvases both drawn at 10 s, in both mount orders | PASS | `twosame`, `twolate` |
+| 13 | Hero canvas never blanks when the second mounts or unmounts | PASS | hero pixels identical in all frames |
+| 14 | Picking works on the second canvas, also after a remount | PASS | `instanceId=10` / `21` |
+| 15 | Seats canvas can be recreated | PASS | drawn at 27 s, fresh state |
+| 16 | CPU after unmount at the known residue, no growth | PASS | 1.2 to 1.7% |
+| 17 | Log: 0 `ERROR`/`ADVICE` | PASS | counts above |
+
+**Counts (counted from the items table, 17 rows):** PASS 15, FAIL 2 (rows 4 and 10: documentation drifts, not blockers), NOT TESTABLE 0.
+
+**What each result decides for B3 to B5**
+1. **Hit boxes (B3/B4):** use `visible={false}` or `material.visible = false` meshes (no draw call): they are raycast and click under expo-gl, in both the hero and the overview cameras; make the box taller than the car body if more tap area is needed (33 pt tall by 48 pt wide at the overview scale is small).
+2. **Seats (B5):** one `InstancedMesh` of 40 with `setColorAt` and `computeBoundingSphere()` picks correctly (row-major `instanceId`) and recolours in one render; choose unlit materials for exact token colours; keep the X marks (clearly visible) alongside white / grey / blue.
+3. **Two canvases (B3):** they can coexist; the picker's seat canvas can sit beside or over the hero canvas, mount late, and be unmounted and recreated; the hero is unaffected.
+
+**Next action for the coder:** build B3 to B5 on these results (hit boxes as `material.visible = false`, unlit instanced seats with the X marks, a seat canvas mounted over the live hero); enlarge the hit-box height if the 33 pt target is too small; keep one canvas per screen state to limit the 1% residue.
+
+### GL lab — reviewer

@@ -1,5 +1,9 @@
-import { Redirect } from 'expo-router';
+import { Text, View } from 'react-native';
 
-export default function Index() {
-  return <Redirect href="/journeys" />;
+export default function HomeScreen() {
+  return (
+    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+      <Text>Train Ticket</Text>
+    </View>
+  );
 }

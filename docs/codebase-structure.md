@@ -1,6 +1,10 @@
 # Codebase structure
 
 > **Proposed — not agreed.** Builds on [architecture.md](architecture.md) (the *what*). This is the *how*: layout, rules, build order. The Day 0 scaffold is in; the rest is proposed.
+>
+> **Status: code removed on purpose; the user will start again. This PR is docs-only.** The tree is the Day-0 scaffold. Before the removal (2026-11-01 to 2026-11-07) these were built: the journey detail page, 2D seat picker and hold flow (M1 `cd2fac1`, M2a `042f9b9`, simulator-tested, 28 suites / 117 tests), then an R3F-native 3D train (M3a simulator-tested, M3b B1–B3 unit-tested only) that was abandoned. Code lives in the local branches `backup/m1-m2a-code` (= `042f9b9`; its two commits are also in `origin/feat/my-journeys-page`) and `backup/r3f-native-3d` (`961fbdb`, the 3D work, the GL lab and the round logs).
+>
+> **What this file is for now:** the rules and the module layout for the restart, plus "Lessons from this attempt" at the bottom. The first-page plan is [journey-detail-plan.md](journey-detail-plan.md); the later 3D plan is [3d-train-checklist.md](3d-train-checklist.md).
 
 ## Layout
 
@@ -26,13 +30,12 @@ assets/
 
 ## seat-map-3d (refines the doc, same module)
 
-- **Controlled and API-agnostic.** Props: `layout`, `status`, `selectedSeat`, `pendingSeat`, `onSeatPress`. The 3D and 2D maps take the same props type. Internals stay as in the doc (`scene/ models/ animation/ seats/ fallback-2d/`).
-- **booking owns the hold request** and drives the doc's `holding` step through props (pending → granted or rejected). The module's own state machine covers camera and animation only: `idle → peeling → interior`.
-- **The barrel must not statically import the R3F scene.** In RN, "lazy" means deferred module evaluation (one Hermes bundle, no chunk splitting), and Metro does not tree-shake barrels on native by default. `index.ts` exports `SeatMap` and `TrainHero` (journey header) as eager wrappers, plus the 2D map and the props type. `SeatMap` owns the 2D/3D choice (toggle, GL failure, low FPS). Only its 3D branch is `lazy()`, inside Suspense plus an error boundary that falls back to 2D, so the 2D path never waits on three.js. `TrainHero` does the same with a static image as its fallback.
-- **Lazy loading is a guarded `require()` (proposed).** `lazy(async …)` calls `require('./scene/…')` and throws a real error when the result is `undefined`; `import()` is not used because jest cannot run it here (babel-preset-expo leaves it for Metro). A module that throws while it loads is fatal under Metro (a red box in dev) and cannot fall back, so loading must not throw; render and async-load errors are what the boundary handles.
-- **Superseded for the first page (proposed):** `architecture.md` mentions a Zustand store, `@react-spring/three`, pan/pinch and drei for this module. The first page replaces them with a pure reducer, interpolation in `useFrame`, a fixed camera and no drei (see [journey-detail-plan.md](journey-detail-plan.md)); `architecture.md` itself is left as it is.
-- **The hero ships static; the 3D hero is built but disabled (proposed):** `HERO_3D_ENABLED = false` in `seat-map-3d/config.ts` makes `TrainHero` render only the static image (no Canvas, no GL context, no `three` evaluation). No 3D pixels were drawn on the iOS 26.5 simulator in two builds (a transparent canvas, then an opaque `scene.background`). The only build that drew was a diagnostic one that also had a raw `expo-gl` `GLView`, an explicit `gl.setClearColor`, a `gl.render` wrapper calling `gl.getError()`, a red cube and extra logging; the next 3D attempt re-adds those pieces one at a time, raw `GLView` first. The 3D acceptance (the hero sways) moves to a physical-device gate. An open bug must be fixed before re-enabling: the app stayed at about 100% CPU after the detail screen was opened, including on the `Live` segment and after going back. Step 10 (3D seats and the shell peel) is blocked on 3D drawing at all; steps 8, 9 and 11 are not.
-- The phase-0 spike runs on a dev-only route with a hard-coded layout and placeholder boxes: no backend, no `.glb`.
+- **Controlled and API-agnostic.** Props: `layout`, `status`, `selectedSeat`, `pendingSeat`, `onSeatPress`. A future 3D map takes the same props type as the 2D grid.
+- **booking owns the hold request** and drives the doc's `holding` step through props (pending → granted or rejected).
+- **For the restart the module is 2D only:** `fallback-2d/SeatGrid2D`, `SeatMap` (renders the grid), `TrainHero` (a static image), `seatVisual`, `types`. The barrel exports `SeatMap`, `TrainHero` and the types. No scene, no lazy loading, no error boundary, no flag. The name `seat-map-3d` is kept for now (it is the architecture doc's module); rename it if 3D does not come back.
+- **When 3D returns** (proposed: three.js in a WebView, see [3d-train-checklist.md](3d-train-checklist.md)), the barrel must still never pull the 3D code into the JS bundle statically; the lazy-loading rules of the removed R3F attempt (a guarded `require()`, not `import()`; a module that throws while loading is fatal under Metro) are in the 3D checklist's lessons, not here.
+- **Superseded for the first page (proposed):** `architecture.md` mentions a Zustand store, `@react-spring/three`, pan/pinch and drei for this module. The first page uses none of them; `architecture.md` itself is left as it is (the user's import).
+- The phase-0 spike is now the **WebView spike** of the 3D checklist: a throwaway page with a hard-coded scene, no backend, no `.glb`.
 
 ## Day 0, kept thin
 
@@ -40,25 +43,25 @@ assets/
 - Native builds, not only Expo Go, from day 0: gate 1 is measured on a **release build on a physical Android phone**. This machine has `adb` but no Android SDK, so it is local SDK or EAS Build (Q1). SDK 58's release notes say new projects should use a development build, and the store Expo Go for 58 is still rolling out, so don't count on Expo Go on physical devices. Whether to add `expo-dev-client` is part of Q1. Bundle identifiers (`ios.bundleIdentifier`, `android.package`) are set to the placeholder `com.vinxenc.trainticket`; change them before the first store submission.
 - Added when their phase needs them: TanStack Query, Zustand, RHF + Zod, i18next (`en` only) in phase 1; Socket.IO, MMKV, expo-secure-store in phase 2; Sentry at the first store build; Maestro once the booking flow exists; EAS Update at the first release; PostHog maybe never.
 - NativeWind: verify compatibility with the Expo and Reanimated versions at scaffold time. Fallback is `StyleSheet` + `shared/theme` tokens.
-- 3D stack: R3F v9, imported from `@react-three/fiber/native`. The doc's `@react-three/native` (the v10 bindings) is not on npm yet (404 on the registry), and R3F's v10 migration guide says native apps stay on v9. The phase-0 spike validates the v9 setup with `expo-gl`. Proposed notes: `three` 0.186+ needs a `metro.config.js` that resolves `three` as an ES module (its `build/three.cjs` is a Node-only shim that calls `process.emitWarning`, which React Native lacks); `expo-gl` means the app needs a native build (`npx expo run:ios`), not Expo Go; and there is no physical device yet, so gate 1 and 3D performance stay unmeasured (the iOS simulator uses software GL).
+- 3D stack: **none today.** `architecture.md` still lists R3F v9 / `expo-gl` / `three` for 3D; that row is superseded-pending and was left unedited (the user's import). The R3F-native attempt was dropped (see the 3D checklist); the proposed replacement is three.js in a `react-native-webview`, to be proven by a one-session spike first. There is no physical device yet, so 3D performance stays unmeasured (the iOS simulator uses software GL). An old gitignored `ios/` folder from the abandoned attempt may still link `expo-gl`: delete it or run `npx expo run:ios --clean` before the next native build.
 - Agent skills, project scope in `.claude/skills/`, pinned by hash in `skills-lock.json` (`npx skills update` refreshes): `react-native-best-practices` (Callstack, for gate 1), `react-native-testing` (RNTL v14), `expo-router` (Expo). Add when their phase arrives: `expo-dev-client` after Q1, `expo-data-fetching` and `expo-design-system` in phase 1, `eas-app-stores`, `eas-update` and `expo-upgrade` in phase 4. This doc wins over any skill default. Every Expo skill ends with a "send feedback" step (`npx --yes @expo/agent-cli`): don't run it without asking.
 
 ## Build order
 
 My reconstruction: the doc's roadmap diagram ("5 phases, 2 gates") did not export.
 
-0. **Foundation + 3D spike** → *Gate 1*: 60 fps on the target Android phone, else cut model detail or go native.
+0. **Foundation + 3D spike** → *Gate 1*: 60 fps on the target Android phone, else cut model detail or go native. *(The R3F-native spike was run in this attempt and failed on the simulator; for the restart the 3D spike is the WebView spike in `3d-train-checklist.md`, and it no longer blocks the 2D work.)*
 1. **2D booking** end to end: search → trips → 2D seats → hold → checkout → ticket. Hold logic includes a forced reject, so "seat reverts to grey" is testable.
 2. **Realtime + offline tickets.** The realtime handler must `cancelQueries` for the seats key before `setQueryData`; otherwise an in-flight older response overwrites a newer patch. Keep the doc's version check on events.
 3. **3D integration**: peel animation, GL-fail or low-FPS fallback to 2D → *Gate 2*.
 4. **Push + deep links, vi/ja strings, store builds.**
 
-First page plan (proposed): [journey-detail-plan.md](journey-detail-plan.md). It pulls the 3D hero and the shell-peel seat picker (placeholder train with the doc's mesh names, fake layout, fake hold with a forced reject, 2D grid fallback) ahead of phase 3. (Proposed update, Round 3: the hero ships as the static image with the 3D hero built but disabled, and the 3D seat picker is blocked until 3D draws.) Gate 2's low-FPS auto-switch stays deferred, and simulator FPS does not count for gate 1.
+First page plan (proposed): [journey-detail-plan.md](journey-detail-plan.md). For the restart it is 2D only (static hero, 2D seat picker); the 3D hero and the shell-peel are deferred to the 3D checklist's track, ahead of phase 3 only if the WebView spike passes. Gate 2's low-FPS auto-switch stays deferred, and simulator FPS does not count for gate 1.
 
 ## Open questions (default if unanswered)
 
 1. Which mid-range Android phone? Local Android SDK or EAS Build? *(blocks gate 1)*
-2. **Decided: placeholders** (a placeholder train with the doc's mesh names). Who makes the real `.glb` is still open.
+2. Placeholders for the first page: a static placeholder hero image; a placeholder train with the doc's mesh names only when 3D returns. Who makes the real `.glb` and the real hero art is still open.
 3. Does a backend or OpenAPI spec exist, or is one coming? *(blocks phase 1)*
    - Default if not: skip orval. `shared/api` = typed functions over an in-memory fake (hold TTL + forced reject; realtime emitter in phase 2).
    - If yes: orval into `shared/api/generated/`. The structure above does not change.
@@ -67,3 +70,14 @@ First page plan (proposed): [journey-detail-plan.md](journey-detail-plan.md). It
 5. Deep link `trainapp://trip/{id}` has no matching route: journey detail is `/journeys/[id]`, and `trip` is also the id in `booking/[tripId]`. Link to `trainapp://journeys/{id}`, or add a `trip/[id]` redirect route? *(default: link to `journeys/{id}`)*
 
 Missing from the export: the layers diagram, the seat-hold flow ("2 decisions") and the roadmap. Paste them if you have them; the hold-flow decisions matter for phase 1.
+
+## Lessons from this attempt
+
+Process (the planner → coder → tester → reviewer loop, simulator only):
+
+- **The loop found real device-only bugs that jest and `expo export` could not:** the `three` CJS shim crash (`process.emitWarning` missing in React Native; `expo export` and jest both passed), unscaled images (RN's `Image` applied the asset's intrinsic size), and a canvas that issued frames but **presented nothing** (no error, nothing to catch in JS). Each needed a tester on the simulator; a green `pnpm check` was never enough for anything native or graphical.
+- **Simulator limits:** no `mobilecli` (so roles and ARIA labels are not testable on device; jest covers them), software GL (frame rates and CPU do not predict a phone), and **no physical device** (gate 1 stays unmeasured). Tap tables were first **computed** from the camera maths and only then **measured** from screenshots; the 2D grid matched exactly (zero drift), the 3D ones were never measured for B1–B3.
+- **Measure before building on a guess:** a one-session lab (runtime-switchable variants, an observer script, a CPU gate) found the frame-driver facts in a day, after three rounds of guessing. Do the spike first (see the WebView spike).
+- **Keep work committed:** the 3D work and M3b B1–B3 sat in an uncommitted working tree; commit WIP to a branch as you go.
+- **Pure logic is cheap and survives:** reducers, projection maths, fakes and tap tables were mutation-tested and are reusable; the GL glue was the expensive, fragile part.
+- **Scope:** a milestone whose gate needs a device nobody has (here: 3D) should be a separate track that cannot block the rest (M2a was built this way and shipped).
