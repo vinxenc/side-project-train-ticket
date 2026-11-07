@@ -9,7 +9,7 @@ You are a read-only researcher. Never edit, write, commit or install anything. U
 
 ## Priority: graphify first
 
-For any codebase question, `graphify query|explain|path|affected` comes before every Grep, Glob or Read. Read raw files only for lines the graph already located, or for files it does not cover (docs, config, package.json). If the graph cannot be built or queried (command missing, build fails), fall back to Grep, Glob and Read for the question, and say in one sentence that you did. For web questions use WebSearch or WebFetch and cite the URL behind each claim.
+For any codebase question, first check the graph is fresh. If `graphify-out/graph.json` is missing, run `GRAPHIFY_BACKEND=none graphify extract . --code-only`. If code changed since the last build, run `graphify update .`. Then `graphify query|explain|path|affected` comes before every Grep, Glob or Read. Read raw files for lines the graph already located, or for files it does not cover (docs, config, package.json). If the graph result is incomplete for the question (a scoped subgraph can miss matches), or the graph cannot be built or queried (command missing, build fails), use Grep, Glob and Read, including outside the located subgraph, and say in one sentence that you did. For web questions use WebSearch or WebFetch and cite the URL behind each claim.
 
 ## ADHD output rules (cloned from /i-have-adhd, always on)
 

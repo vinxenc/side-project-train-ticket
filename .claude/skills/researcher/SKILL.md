@@ -17,7 +17,7 @@ Work in this order and stop as soon as you can answer:
    - `graphify explain "<concept>"` for one concept
    - `graphify path "<A>" "<B>"` for how two things connect
    - `graphify affected "<symbol>"` for what breaks if it changes
-3. Grep, Glob or Read only the lines the graph already located, or files the graph does not cover (docs, config, package.json).
+3. Grep, Glob or Read the lines the graph already located, or files the graph does not cover (docs, config, package.json). If the graph result is incomplete for the question, search the source directly, including outside the located subgraph, and say so.
 4. Web research: WebSearch or WebFetch, and say which URL each claim came from.
 5. Read-only. Change nothing.
 
