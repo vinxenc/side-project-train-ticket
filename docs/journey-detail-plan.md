@@ -48,9 +48,9 @@ Layout notes:
 - **Styling:** NativeWind, as in `architecture.md` (decided 2026-11-07, user's call). Target `nativewind@4.2.7`, the stable line; v5 is RC only. No source confirms it on Expo 58 / RN 0.88 / React 19.3, so install it in a spike first: if it does not build and render on the simulator, fall back to `StyleSheet` + `shared/theme` tokens (the `codebase-structure.md` fallback). Hex colours still live only in the theme: Tailwind config reads the tokens.
   - **Spike result (2026-11-07):** `nativewind@4.2.7` + `tailwindcss@3.4.19` + `react-native-reanimated@4.7.1` + `react-native-worklets@0.13.0` install on Expo 58 / RN 0.88 / React 19.3. `pnpm check` passes and `expo export --platform ios` bundles; the bundle contains the compiled styles (`bg-slate-100` → `#f1f5f9`). **Renders on the iOS simulator (iPhone 17 Pro, iOS 26.5, debug build, 2026-11-07):** grey `bg-slate-100` background and a black rounded pill. Not tried on a physical device or release build. Gotchas: `pod install` needs `LANG=en_US.UTF-8` (without it CocoaPods crashes), and Metro must already be running when the app launches (otherwise "No script URL"). Two pnpm gotchas: add `react-native-css-interop@0.2.7` as a direct dependency (the Babel `jsxImportSource` cannot resolve it under isolated installs), and add `declare module '*.css'` to `nativewind-env.d.ts` (TS 6 rejects the side-effect import otherwise). Reanimated is installed because v4 expects it, even though no screen animates yet.
 - **Images:** RN `Image`. `expo-image` is not installed, so add it in phase 1 with the lists.
-- **Icons:** none are installed. `@expo/vector-icons` is not in `pnpm-lock.yaml`, so under isolated installs it must be added explicitly (Q4); it needs `expo-font`, and icon fonts cannot load under jest, so `jest.setup.ts` mocks `expo-font`.
+- **Icons (superseded 2026-11-08, see Decided):** none are installed. `@expo/vector-icons` is not in `pnpm-lock.yaml`, so under isolated installs it must be added explicitly (Q4); it needs `expo-font`, and icon fonts cannot load under jest, so `jest.setup.ts` mocks `expo-font`.
 - **Segments:** local `useState`. Live and Tickets show a placeholder line. No nested routes.
-- **Data:** typed in-memory fakes (the Q3 default in `codebase-structure.md`). `useJourney(id)` is a plain synchronous hook so the screen never knows where the data comes from. TanStack Query waits for phase 1 (Q6).
+- **Data (superseded 2026-11-08, see Decided):** typed in-memory fakes (the Q3 default in `codebase-structure.md`). `useJourney(id)` is a plain synchronous hook so the screen never knows where the data comes from. TanStack Query waits for phase 1 (Q6).
 - **Status and countdown:** "On time" and "12 min" are static fake values. They become realtime in phase 2.
 - **Gradient and blur:** none. No `expo-linear-gradient`, no `expo-blur`.
 - **No Zustand and no gesture handler for the first page.** 3D (and with it the peel machine, animation and camera) is deferred; see [3d-train-checklist.md](3d-train-checklist.md).
@@ -183,7 +183,7 @@ Each step ends green on `pnpm check`, then gets a simulator pass. Status is as o
 - Checkout, the hold countdown, realtime seat events and version checks.
 - Low-FPS auto-switch to 2D (gate 2).
 - Measuring gate 1 on a physical Android phone.
-- Blur on the tab bar, API, TanStack Query.
+- Blur on the tab bar, a real backend (the fake api and TanStack Query are in; see "Decided 2026-11-08").
 
 ## Done when
 
@@ -193,6 +193,19 @@ Each step ends green on `pnpm check`, then gets a simulator pass. Status is as o
 - **M2a:** the seat chip opens the picker; tapping a free seat holds it (a spinner, then a ✓ and the seat card); the forced-reject seat goes back to free with a message and the previous seat stays selected.
 - **M2b (deferred, not part of the restart):** tapping the train peels the shell and moves the camera over the seats; tapping a seat in 3D holds it; with the 3D scene failing, the 2D grid shows the same seats and passes the same hold tests. Redo only after the WebView spike in [3d-train-checklist.md](3d-train-checklist.md).
 - Tests listed in steps 1–11 pass, plus `pnpm check`.
+
+## Decided 2026-11-08 (first page build)
+
+These override the older defaults in "Decisions, kept minimal" and the open questions below.
+
+- **Icons (Q4):** `lucide-react-native` + `react-native-svg` (Expo's docs say `@expo/vector-icons` "will be deprecated"). No font loading, so `expo-font` and its jest mock are not needed. Icons take `color` as a prop (`className` does not set it). Jest maps `lucide-react-native` to its CJS build in `package.json`. Names used: ChevronLeft, EllipsisVertical, TrainFront, Footprints, Mountain, QrCode, Map, FileText, Armchair, Ticket, Compass, CircleUserRound.
+- **Hero (Q5):** an original flat SVG illustration, `src/components/HeroIllustration.tsx` (Shinkansen, Mt. Fuji, sakura branch, torii; colours are `hero*`, `sakura`, `torii`, `branch` tokens in `colors.ts`). It is not the mockup's artwork. It replaces the first placeholder block; real art can replace it later.
+- **Data layer (Q6):** Promise-based, fake first, in ONE file: `src/api/journeys.ts` holds the `Journey` type, `ApiError`, the fake data and `getJourney(id)` (300 ms fake latency, `ApiError(404)` for an unknown id). To use a real backend, rewrite the body of `getJourney` (same signature). `src/api/queryClient.ts` is the shared `QueryClient` (it does not retry 4xx). The screen calls `useQuery` directly with key `['journey', id]`. TanStack Query is in now, not phase 1.
+- **Tab bar (Q8):** plain translucent bar (`colors.tabBar`, rgba), no `expo-blur`, no shadow (translucent fill plus shadow logs an iOS warning).
+- **Restart (Q9):** rebuilt from scratch, not copied from `backup/m1-m2a-code`.
+- **Journey type:** added `carPosition` ("front of the train") so the details row is data, not a string in the component.
+- **Flat layout (user's call, 2026-11-08):** there is no `src/features/` folder yet. Routes in `src/app/`, screen code inside the route file (`(tabs)/journeys/[id].tsx`), UI pieces in `src/components/`, api in `src/api/`, theme tokens still in `src/shared/theme/`. Re-introduce `features/<name>/` (as `codebase-structure.md` describes) when a second feature makes the flat folders crowded.
+- **Verified on the iOS simulator (iPhone 17 Pro, iOS 26.5, 2026-11-08):** `/` redirects to the list, the link opens the detail page, segments switch, the floating bar sits inset with labels. Fixes found there: `Tabs` pads the bar with the safe-area inset (set `paddingBottom: 0`), `left`/`right` on `tabBarStyle` are ignored (use `marginHorizontal`), and the built-in item squeezes its label and has a square active background, so `(tabs)/_layout.tsx` draws each tab button itself (`tabBarButton`): icon + label inside one rounded pill, filled when the route matches (the button is not told it is selected, so focus comes from `usePathname`). The Journeys icon is a custom solid bullet-train silhouette, `src/components/TrainSideIcon.tsx` (Lucide only has front-view trains). Gotcha: Metro here did not notice edits made after it started; restart it with `--clear` if the app shows old code. Not checked: a physical device, release build, Android.
 
 ## Open questions (default if unanswered)
 
