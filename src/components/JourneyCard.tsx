@@ -8,13 +8,14 @@ import { TrainSideIcon } from '@/components/TrainSideIcon';
 
 import type { Journey, Stop } from '@/api/journeys';
 
-/** '09:00', '11:12' -> '2h 12m'. Same-day trips only for now. */
+/** '09:00', '11:12' -> '2h 12m'. An earlier arrival time means the next day. */
 export function formatDuration(from: string, to: string): string {
   const minutes = (t: string) => {
     const [h, m] = t.split(':').map(Number);
     return h * 60 + m;
   };
-  const total = minutes(to) - minutes(from);
+  let total = minutes(to) - minutes(from);
+  if (total < 0) total += 24 * 60; // crossed midnight (trips under 24h)
   return `${Math.floor(total / 60)}h ${total % 60}m`;
 }
 

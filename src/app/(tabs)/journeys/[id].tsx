@@ -21,6 +21,12 @@ const SEGMENTS = [
 ] as const;
 type Segment = (typeof SEGMENTS)[number]['value'];
 
+// Opened directly (a deep link), there is no earlier screen to go back to.
+function goBack() {
+  if (router.canGoBack()) router.back();
+  else router.replace('/journeys');
+}
+
 export default function JourneyDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const insets = useSafeAreaInsets();
@@ -38,11 +44,7 @@ export default function JourneyDetail() {
   return (
     <View className="flex-1 bg-background" style={{ paddingTop: insets.top }}>
       <View className="flex-row items-center justify-between px-4 py-2">
-        <IconButton
-          icon={ChevronLeft}
-          label="Back"
-          onPress={() => router.back()}
-        />
+        <IconButton icon={ChevronLeft} label="Back" onPress={goBack} />
         <Text
           accessibilityRole="header"
           className="text-base font-semibold text-textPrimary"

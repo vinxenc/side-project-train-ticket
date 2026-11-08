@@ -6,6 +6,8 @@ import { formatDuration, JourneyCard } from '@/components/JourneyCard';
 test('formatDuration turns two times into hours and minutes', () => {
   expect(formatDuration('09:00', '11:12')).toBe('2h 12m');
   expect(formatDuration('10:05', '10:45')).toBe('0h 40m');
+  // arriving after midnight
+  expect(formatDuration('23:30', '01:00')).toBe('1h 30m');
 });
 
 test('JourneyCard shows On time, or Delayed for a delayed journey', async () => {

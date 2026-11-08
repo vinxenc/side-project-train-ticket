@@ -10,3 +10,11 @@ test('getJourney rejects an unknown id with a 404 ApiError', async () => {
   expect(error).toBeInstanceOf(ApiError);
   expect(error).toMatchObject({ status: 404 });
 });
+
+test.each(['constructor', 'toString', '__proto__'])(
+  'getJourney treats the inherited name %s as an unknown id',
+  async (id) => {
+    const error = await getJourney(id).catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 404 });
+  },
+);

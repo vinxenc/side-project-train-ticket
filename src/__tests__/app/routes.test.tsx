@@ -1,5 +1,11 @@
-import { fireEvent, renderRouter, screen } from 'expo-router/testing-library';
+import {
+  fireEvent,
+  renderRouter,
+  screen,
+  waitFor,
+} from 'expo-router/testing-library';
 
+import * as journeysApi from '@/api/journeys';
 import { queryClient } from '@/api/queryClient';
 
 // Renders the real src/app routes, so a wrong Tabs.Screen name or a [id] that
@@ -75,12 +81,26 @@ test('the Tickets segment shows its placeholder', async () => {
 });
 
 test('tapping the error message retries the request', async () => {
+  const getJourney = jest.spyOn(journeysApi, 'getJourney');
   await renderRouter(APP, { initialUrl: '/journeys/nope' });
   const alert = await screen.findByRole('alert');
+  expect(getJourney).toHaveBeenCalledTimes(1);
   // renderRouter fakes timers, but the retry's fake-api delay must really elapse.
   jest.useRealTimers();
   await fireEvent.press(alert);
+  await waitFor(() => expect(getJourney).toHaveBeenCalledTimes(2));
   expect(await screen.findByRole('alert')).toBeOnTheScreen();
+  getJourney.mockRestore();
+});
+
+test('Back on a directly opened detail page goes to the list', async () => {
+  await renderRouter(APP, { initialUrl: '/journeys/nozomi-32' });
+  await screen.findByText('Show ticket');
+  await fireEvent.press(screen.getByRole('button', { name: 'Back' }));
+  expect(
+    await screen.findByText('Nozomi 32 · Tokyo → Kyoto'),
+  ).toBeOnTheScreen();
+  expect(screen).toHavePathname('/journeys');
 });
 
 test('the tab bar opens the Tickets, Explore and Profile tabs', async () => {
